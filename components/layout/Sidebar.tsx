@@ -74,7 +74,6 @@ export function Sidebar() {
                         const isActive = pathname === item.href;
                         const linkContent = (
                             <Link
-                                key={item.label}
                                 href={item.href}
                                 className={cn(
                                     "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-150",
@@ -91,13 +90,13 @@ export function Sidebar() {
                         if (collapsed) {
                             return (
                                 <Tooltip key={item.label}>
-                                    <TooltipTrigger asChild>{linkContent}</TooltipTrigger>
+                                    <TooltipTrigger render={linkContent} />
                                     <TooltipContent side="right">{item.label}</TooltipContent>
                                 </Tooltip>
                             );
                         }
 
-                        return linkContent;
+                        return <div key={item.label}>{linkContent}</div>;
                     })}
                 </nav>
             </ScrollArea>

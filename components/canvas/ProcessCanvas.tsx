@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useMemo, useState, useEffect } from "react";
+import { useCallback, useRef, useState, useEffect } from "react";
 import {
     ReactFlow,
     Background,
@@ -25,20 +25,40 @@ import { getNodeDefinition } from "@/lib/nodes/registry";
 import { recalculateGraph, GraphNode, GraphEdge } from "@/lib/engine/graph";
 import { evaluateNodeEquations, EvalContext } from "@/lib/engine/evaluator";
 
+// Define custom node data type
+type EngineNodeData = {
+    nodeType: string;
+    label: string;
+    parameters: Record<string, { value: number; unit?: string }>;
+    inputs: Record<string, number>;
+    computedOutputs: Record<string, number>;
+    equations: string[];
+};
+
 const nodeTypes = {
     engineNode: EngineNode,
 };
 
 let nodeIdCounter = 0;
 
-function createFlowNode(type: string, position: { x: number; y: number }): Node {
+function createFlowNode(
+    type: string,
+    position: { x: number; y: number }
+): Node {
     const def = getNodeDefinition(type);
     if (!def) {
         return {
             id: `node_${++nodeIdCounter}`,
             type: "engineNode",
             position,
-            data: { nodeType: type, label: type, parameters: {}, inputs: {}, computedOutputs: {} },
+            data: {
+                nodeType: type,
+                label: type,
+                parameters: {},
+                inputs: {},
+                computedOutputs: {},
+                equations: [],
+            } as EngineNodeData,
         };
     }
 
@@ -47,7 +67,7 @@ function createFlowNode(type: string, position: { x: number; y: number }): Node 
         parameters[p.name] = { value: p.defaultValue, unit: p.unit };
     }
 
-    // For stream nodes, parameters are also outputs
+    // Build initial context from parameters
     const initialContext: EvalContext = {};
     for (const [key, param] of Object.entries(parameters)) {
         initialContext[key] = param.value;
@@ -74,13 +94,13 @@ function createFlowNode(type: string, position: { x: number; y: number }): Node 
             inputs: {},
             computedOutputs: outputs,
             equations: def.equations,
-        },
+        } as EngineNodeData,
     };
 }
 
 function ProcessCanvasInner() {
-    const [nodes, setNodes, onNodesChange] = useNodesState([]);
-    const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+    const [nodes, setNodes, onNodesChange] = useNodesState<Node>([] as Node[]);
+    const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([] as Edge[]);
     const [selectedNode, setSelectedNode] = useState<Node | null>(null);
     const reactFlowWrapper = useRef<HTMLDivElement>(null);
     const { screenToFlowPosition } = useReactFlow();
@@ -90,10 +110,10 @@ function ProcessCanvasInner() {
         (currentNodes: Node[], currentEdges: Edge[]) => {
             const graphNodes = new Map<string, GraphNode>();
             for (const node of currentNodes) {
-                const d = node.data as any;
+                const d = node.data as EngineNodeData;
                 const params: Record<string, { value: number }> = {};
                 for (const [k, v] of Object.entries(d.parameters || {})) {
-                    params[k] = { value: (v as any).value };
+                    params[k] = { value: v.value };
                 }
 
                 const def = getNodeDefinition(d.nodeType);
@@ -122,17 +142,17 @@ function ProcessCanvasInner() {
 
             const results = recalculateGraph(graphNodes, graphEdges);
 
-            setNodes((nds) =>
-                nds.map((node) => {
+            setNodes((nds: Node[]) =>
+                nds.map((node: Node) => {
                     const nodeResults = results.get(node.id);
                     const graphNode = graphNodes.get(node.id);
                     if (nodeResults) {
                         return {
                             ...node,
                             data: {
-                                ...node.data,
+                                ...(node.data as EngineNodeData),
                                 computedOutputs: nodeResults,
-                                inputs: graphNode?.inputs || (node.data as any).inputs,
+                                inputs: graphNode?.inputs || (node.data as EngineNodeData).inputs,
                             },
                         };
                     }
@@ -145,34 +165,24 @@ function ProcessCanvasInner() {
 
     const onConnect = useCallback(
         (connection: Connection) => {
-            setEdges((eds) => {
-                const newEdges = addEdge(
-                    {
-                        ...connection,
-                        style: { stroke: "oklch(0.65 0.18 250)", strokeWidth: 2 },
-                        animated: true,
-                    },
-                    eds
-                );
+            setEdges((eds: Edge[]) => {
+                const newEdges = addEdge(connection, eds);
                 // Recalculate after edge is added
                 setTimeout(() => {
-                    setNodes((currentNodes) => {
-                        runRecalculation(currentNodes, newEdges);
+                    setNodes((currentNodes: Node[]) => {
+                        runRecalculation(currentNodes, newEdges as Edge[]);
                         return currentNodes;
                     });
                 }, 0);
-                return newEdges;
+                return newEdges as Edge[];
             });
         },
         [setEdges, setNodes, runRecalculation]
     );
 
-    const onNodeClick = useCallback(
-        (_: any, node: Node) => {
-            setSelectedNode(node);
-        },
-        []
-    );
+    const onNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
+        setSelectedNode(node);
+    }, []);
 
     const onPaneClick = useCallback(() => {
         setSelectedNode(null);
@@ -180,9 +190,12 @@ function ProcessCanvasInner() {
 
     const addNode = useCallback(
         (type: string) => {
-            const position = { x: 250 + Math.random() * 200, y: 150 + Math.random() * 200 };
+            const position = {
+                x: 250 + Math.random() * 200,
+                y: 150 + Math.random() * 200,
+            };
             const newNode = createFlowNode(type, position);
-            setNodes((nds) => [...nds, newNode]);
+            setNodes((nds: Node[]) => [...nds, newNode]);
         },
         [setNodes]
     );
@@ -204,17 +217,17 @@ function ProcessCanvasInner() {
             });
 
             const newNode = createFlowNode(type, position);
-            setNodes((nds) => [...nds, newNode]);
+            setNodes((nds: Node[]) => [...nds, newNode]);
         },
         [screenToFlowPosition, setNodes]
     );
 
     const onUpdateParameter = useCallback(
         (nodeId: string, paramName: string, value: number) => {
-            setNodes((nds) => {
-                const updatedNodes = nds.map((node) => {
+            setNodes((nds: Node[]) => {
+                const updatedNodes = nds.map((node: Node) => {
                     if (node.id !== nodeId) return node;
-                    const d = node.data as any;
+                    const d = node.data as EngineNodeData;
                     return {
                         ...node,
                         data: {
@@ -231,8 +244,11 @@ function ProcessCanvasInner() {
                 });
 
                 // Recalculate after parameter update
-                setEdges((currentEdges) => {
-                    setTimeout(() => runRecalculation(updatedNodes, currentEdges), 0);
+                setEdges((currentEdges: Edge[]) => {
+                    setTimeout(
+                        () => runRecalculation(updatedNodes, currentEdges),
+                        0
+                    );
                     return currentEdges;
                 });
 

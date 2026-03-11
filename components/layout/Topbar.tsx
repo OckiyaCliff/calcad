@@ -28,15 +28,17 @@ export function Topbar() {
 
             <div className="flex items-center gap-3">
                 <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <button className="flex items-center gap-2 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                            <Avatar className="h-8 w-8 cursor-pointer ring-2 ring-border hover:ring-primary/50 transition-all">
-                                <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold">
-                                    {initials}
-                                </AvatarFallback>
-                            </Avatar>
-                        </button>
-                    </DropdownMenuTrigger>
+                    <DropdownMenuTrigger
+                        render={
+                            <button className="flex items-center gap-2 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                                <Avatar className="h-8 w-8 cursor-pointer ring-2 ring-border hover:ring-primary/50 transition-all">
+                                    <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold">
+                                        {initials}
+                                    </AvatarFallback>
+                                </Avatar>
+                            </button>
+                        }
+                    />
                     <DropdownMenuContent align="end" className="w-48">
                         <div className="px-2 py-1.5">
                             <p className="text-sm font-medium">{user?.email || "Guest"}</p>
