@@ -5,18 +5,20 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { X } from "lucide-react";
+import { X, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface PropertiesPanelProps {
     selectedNode: any;
     onUpdateParameter: (nodeId: string, paramName: string, value: number) => void;
+    onDeleteNode: (nodeId: string) => void;
     onClose: () => void;
 }
 
 export function PropertiesPanel({
     selectedNode,
     onUpdateParameter,
+    onDeleteNode,
     onClose,
 }: PropertiesPanelProps) {
     if (!selectedNode) return null;
@@ -182,6 +184,19 @@ export function PropertiesPanel({
                     )}
                 </div>
             </ScrollArea>
+
+            {/* Delete Button */}
+            <div className="p-3 border-t border-border">
+                <Button
+                    variant="destructive"
+                    size="sm"
+                    className="w-full gap-2"
+                    onClick={() => onDeleteNode(selectedNode.id)}
+                >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Delete Node
+                </Button>
+            </div>
         </div>
     );
 }

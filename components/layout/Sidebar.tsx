@@ -34,7 +34,7 @@ const navItems = [
     },
     {
         label: "Templates",
-        href: "/dashboard",
+        href: "/templates",
         icon: FlaskConical,
     },
     {

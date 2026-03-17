@@ -24,6 +24,8 @@ import { PropertiesPanel } from "./PropertiesPanel";
 import { getNodeDefinition } from "@/lib/nodes/registry";
 import { recalculateGraph, GraphNode, GraphEdge } from "@/lib/engine/graph";
 import { evaluateNodeEquations, EvalContext } from "@/lib/engine/evaluator";
+import { db } from "@/lib/instantdb";
+import { id as instantId, tx } from "@instantdb/react";
 
 // Define custom node data type
 type EngineNodeData = {
@@ -98,14 +100,169 @@ function createFlowNode(
     };
 }
 
-function ProcessCanvasInner() {
+// ─── Persistence helpers ───────────────────────────────────────
+
+function serializeNodeForDB(node: Node, projectId: string) {
+    const d = node.data as EngineNodeData;
+    return {
+        projectId,
+        type: d.nodeType,
+        label: d.label,
+        positionX: node.position.x,
+        positionY: node.position.y,
+        parameters: d.parameters,
+        inputs: d.inputs,
+        outputs: d.computedOutputs,
+        equations: d.equations,
+    };
+}
+
+function deserializeNodeFromDB(dbNode: any): Node {
+    return {
+        id: dbNode.id,
+        type: "engineNode",
+        position: { x: dbNode.positionX, y: dbNode.positionY },
+        data: {
+            nodeType: dbNode.type,
+            label: dbNode.label,
+            parameters: dbNode.parameters || {},
+            inputs: dbNode.inputs || {},
+            computedOutputs: dbNode.outputs || {},
+            equations: dbNode.equations || [],
+        } as EngineNodeData,
+    };
+}
+
+function serializeEdgeForDB(edge: Edge, projectId: string) {
+    return {
+        projectId,
+        source: edge.source,
+        target: edge.target,
+        sourceHandle: edge.sourceHandle || "",
+        targetHandle: edge.targetHandle || "",
+    };
+}
+
+function deserializeEdgeFromDB(dbEdge: any): Edge {
+    return {
+        id: dbEdge.id,
+        source: dbEdge.source,
+        target: dbEdge.target,
+        sourceHandle: dbEdge.sourceHandle || undefined,
+        targetHandle: dbEdge.targetHandle || undefined,
+        style: { stroke: "oklch(0.65 0.18 250)", strokeWidth: 2 },
+        animated: true,
+    };
+}
+
+// ─── Inner Canvas Component ────────────────────────────────────
+
+function ProcessCanvasInner({ projectId }: { projectId: string }) {
     const [nodes, setNodes, onNodesChange] = useNodesState<Node>([] as Node[]);
     const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([] as Edge[]);
     const [selectedNode, setSelectedNode] = useState<Node | null>(null);
     const reactFlowWrapper = useRef<HTMLDivElement>(null);
     const { screenToFlowPosition } = useReactFlow();
+    const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const isHydratedRef = useRef(false);
+    const isSavingRef = useRef(false);
 
-    // Recalculate graph when nodes or edges change
+    // ─── Load from InstantDB ───────────────────────────────────
+    const { data: savedData, isLoading: isLoadingData } = db.useQuery({
+        nodes: { $: { where: { projectId } } },
+        edges: { $: { where: { projectId } } },
+    });
+
+    useEffect(() => {
+        if (isLoadingData || isHydratedRef.current || !savedData) return;
+
+        const savedNodes = (savedData.nodes || []).map(deserializeNodeFromDB);
+        const savedEdges = (savedData.edges || []).map(deserializeEdgeFromDB);
+
+        if (savedNodes.length > 0) {
+            // Update the node id counter to avoid collisions
+            for (const n of savedNodes) {
+                const match = n.id.match(/node_(\d+)/);
+                if (match) {
+                    const num = parseInt(match[1], 10);
+                    if (num >= nodeIdCounter) nodeIdCounter = num + 1;
+                }
+            }
+            setNodes(savedNodes);
+            setEdges(savedEdges);
+
+            // Run recalculation after hydration
+            setTimeout(() => {
+                runRecalculation(savedNodes, savedEdges);
+            }, 100);
+        }
+
+        isHydratedRef.current = true;
+    }, [savedData, isLoadingData]);
+
+    // ─── Debounced save to InstantDB ───────────────────────────
+    const saveToDB = useCallback(
+        (currentNodes: Node[], currentEdges: Edge[]) => {
+            if (!projectId || !isHydratedRef.current || isSavingRef.current) return;
+
+            if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+
+            saveTimerRef.current = setTimeout(async () => {
+                isSavingRef.current = true;
+                try {
+                    // Delete old data for this project
+                    const existing = await db.queryOnce({
+                        nodes: { $: { where: { projectId } } },
+                        edges: { $: { where: { projectId } } },
+                    });
+
+                    const deleteTxns: any[] = [];
+                    for (const n of existing.data.nodes || []) {
+                        deleteTxns.push(tx.nodes[n.id].delete());
+                    }
+                    for (const e of existing.data.edges || []) {
+                        deleteTxns.push(tx.edges[e.id].delete());
+                    }
+
+                    // Create new data
+                    const createTxns: any[] = [];
+                    const nodeIdMap = new Map<string, string>(); // flowId -> dbId
+
+                    for (const node of currentNodes) {
+                        const dbId = instantId();
+                        nodeIdMap.set(node.id, dbId);
+                        createTxns.push(
+                            tx.nodes[dbId].update(serializeNodeForDB(node, projectId))
+                        );
+                    }
+
+                    for (const edge of currentEdges) {
+                        const dbId = instantId();
+                        createTxns.push(
+                            tx.edges[dbId].update(serializeEdgeForDB(edge, projectId))
+                        );
+                    }
+
+                    if (deleteTxns.length > 0 || createTxns.length > 0) {
+                        await db.transact([...deleteTxns, ...createTxns]);
+                    }
+                } catch (err) {
+                    console.error("Failed to save canvas:", err);
+                } finally {
+                    isSavingRef.current = false;
+                }
+            }, 800);
+        },
+        [projectId]
+    );
+
+    // Auto-save when nodes or edges change (after hydration)
+    useEffect(() => {
+        if (!isHydratedRef.current) return;
+        saveToDB(nodes, edges);
+    }, [nodes, edges, saveToDB]);
+
+    // ─── Recalculate graph ─────────────────────────────────────
     const runRecalculation = useCallback(
         (currentNodes: Node[], currentEdges: Edge[]) => {
             const graphNodes = new Map<string, GraphNode>();
@@ -163,11 +320,11 @@ function ProcessCanvasInner() {
         [setNodes]
     );
 
+    // ─── Connection handler ────────────────────────────────────
     const onConnect = useCallback(
         (connection: Connection) => {
             setEdges((eds: Edge[]) => {
                 const newEdges = addEdge(connection, eds);
-                // Recalculate after edge is added
                 setTimeout(() => {
                     setNodes((currentNodes: Node[]) => {
                         runRecalculation(currentNodes, newEdges as Edge[]);
@@ -180,6 +337,7 @@ function ProcessCanvasInner() {
         [setEdges, setNodes, runRecalculation]
     );
 
+    // ─── Selection handlers ────────────────────────────────────
     const onNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
         setSelectedNode(node);
     }, []);
@@ -188,6 +346,47 @@ function ProcessCanvasInner() {
         setSelectedNode(null);
     }, []);
 
+    // ─── Deletion handlers ─────────────────────────────────────
+    const onNodesDelete = useCallback(
+        (deletedNodes: Node[]) => {
+            setSelectedNode((prev) => {
+                if (prev && deletedNodes.some((n) => n.id === prev.id)) {
+                    return null;
+                }
+                return prev;
+            });
+            setTimeout(() => {
+                setNodes((currentNodes: Node[]) => {
+                    setEdges((currentEdges: Edge[]) => {
+                        runRecalculation(currentNodes, currentEdges);
+                        return currentEdges;
+                    });
+                    return currentNodes;
+                });
+            }, 0);
+        },
+        [setNodes, setEdges, runRecalculation]
+    );
+
+    const onDeleteNode = useCallback(
+        (nodeId: string) => {
+            setNodes((nds: Node[]) => nds.filter((n) => n.id !== nodeId));
+            setEdges((eds: Edge[]) => eds.filter((e) => e.source !== nodeId && e.target !== nodeId));
+            setSelectedNode(null);
+            setTimeout(() => {
+                setNodes((currentNodes: Node[]) => {
+                    setEdges((currentEdges: Edge[]) => {
+                        runRecalculation(currentNodes, currentEdges);
+                        return currentEdges;
+                    });
+                    return currentNodes;
+                });
+            }, 0);
+        },
+        [setNodes, setEdges, runRecalculation]
+    );
+
+    // ─── Add node handlers ─────────────────────────────────────
     const addNode = useCallback(
         (type: string) => {
             const position = {
@@ -222,6 +421,7 @@ function ProcessCanvasInner() {
         [screenToFlowPosition, setNodes]
     );
 
+    // ─── Parameter update handler ──────────────────────────────
     const onUpdateParameter = useCallback(
         (nodeId: string, paramName: string, value: number) => {
             setNodes((nds: Node[]) => {
@@ -243,7 +443,6 @@ function ProcessCanvasInner() {
                     };
                 });
 
-                // Recalculate after parameter update
                 setEdges((currentEdges: Edge[]) => {
                     setTimeout(
                         () => runRecalculation(updatedNodes, currentEdges),
@@ -252,7 +451,6 @@ function ProcessCanvasInner() {
                     return currentEdges;
                 });
 
-                // Update selected node reference
                 const updatedSelected = updatedNodes.find((n) => n.id === nodeId);
                 if (updatedSelected) {
                     setSelectedNode(updatedSelected);
@@ -274,6 +472,18 @@ function ProcessCanvasInner() {
         }
     }, [nodes, selectedNode]);
 
+    // ─── Loading state ─────────────────────────────────────────
+    if (isLoadingData) {
+        return (
+            <div className="flex items-center justify-center h-full">
+                <div className="flex flex-col items-center gap-3">
+                    <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                    <p className="text-sm text-muted-foreground">Loading canvas...</p>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="flex h-full">
             <NodePalette onAddNode={addNode} />
@@ -284,6 +494,8 @@ function ProcessCanvasInner() {
                     onNodesChange={onNodesChange}
                     onEdgesChange={onEdgesChange}
                     onConnect={onConnect}
+                    onNodesDelete={onNodesDelete}
+                    deleteKeyCode={["Backspace", "Delete"]}
                     onNodeClick={onNodeClick}
                     onPaneClick={onPaneClick}
                     onDragOver={onDragOver}
@@ -314,6 +526,7 @@ function ProcessCanvasInner() {
                 <PropertiesPanel
                     selectedNode={selectedNode}
                     onUpdateParameter={onUpdateParameter}
+                    onDeleteNode={onDeleteNode}
                     onClose={() => setSelectedNode(null)}
                 />
             )}
@@ -321,10 +534,10 @@ function ProcessCanvasInner() {
     );
 }
 
-export function ProcessCanvas() {
+export function ProcessCanvas({ projectId }: { projectId: string }) {
     return (
         <ReactFlowProvider>
-            <ProcessCanvasInner />
+            <ProcessCanvasInner projectId={projectId} />
         </ReactFlowProvider>
     );
 }
