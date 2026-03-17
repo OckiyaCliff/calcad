@@ -67,7 +67,7 @@
   --input: oklch(0.85 0.02 240);
   --ring: oklch(0.55 0.18 250);
   --radius: 0.75rem;
-  
+
   --chart-1: oklch(0.6 0.15 250);
   --chart-2: oklch(0.5 0.18 150);
   --chart-3: oklch(0.7 0.15 40);
@@ -124,7 +124,7 @@
   .glass {
     @apply bg-background/60 backdrop-blur-md border border-white/10;
   }
-  
+
   .glass-dark {
     @apply bg-black/40 backdrop-blur-lg border border-white/5;
   }
@@ -137,15 +137,31 @@
   .engine-gradient {
     background: linear-gradient(135deg, oklch(0.15 0.05 260), oklch(0.1 0.02 260));
   }
+
+  @keyframes progress-indefinite {
+    0% {
+      transform: translateX(-100%);
+    }
+
+    100% {
+      transform: translateX(300%);
+    }
+  }
+
+  .animate-progress-indefinite {
+    animation: progress-indefinite 2s infinite linear;
+  }
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground;
   }
+
   html {
     @apply font-sans;
   }
