@@ -1,4 +1,7 @@
 import { evaluate, parse, unit } from "mathjs";
+import { registry } from "./properties/registry";
+import { resolveComponentProperty, resolveMixtureProperty } from "./properties/evaluator";
+import { State } from "./properties/types";
 
 export interface EvalContext {
     [variable: string]: number;
@@ -48,7 +51,9 @@ export function extractVariables(expression: string): string[] {
 export function evaluateNodeEquations(
     equations: string[],
     initialContext: EvalContext,
-    variableUnits: UnitMapping = {}
+    variableUnits: UnitMapping = {},
+    fluidId?: string,
+    composition?: Record<string, number>
 ): EvalContext {
     const context = { ...initialContext };
     
@@ -58,7 +63,6 @@ export function evaluateNodeEquations(
         const unitStr = variableUnits[key];
         if (unitStr) {
             try {
-                // Create a unit object. Mathjs will handle conversions during math operations.
                 mathContext[key] = unit(val, unitStr);
             } catch (err) {
                 console.warn(`Could not create unit for ${key} with unit ${unitStr}:`, err);
@@ -66,6 +70,32 @@ export function evaluateNodeEquations(
             }
         } else {
             mathContext[key] = val;
+        }
+    }
+
+    // 1b. Inject dynamic properties if a fluid is specified
+    if (fluidId) {
+        const component = registry.getComponent(fluidId);
+        if (component) {
+            // Determine state (convert T/P to Kelvin/Pascal for the engine)
+            const T_val = context["temperature"] || context["Tin"] || context["T"] || 298.15;
+            const P_val = context["pressure"] || context["Pin"] || context["P"] || 101325;
+            
+            const state: State = { T: T_val, P: P_val };
+            
+            // Map common properties with underscore prefix
+            const props: (keyof typeof component.properties)[] = ["cp", "density", "viscosity", "enthalpy", "vaporPressure"];
+            props.forEach(p => {
+                const val = resolveComponentProperty(component, p, state);
+                if (val !== 0) {
+                    mathContext[`_${p}`] = val;
+                }
+            });
+            
+            // Inject constants
+            mathContext["_mw"] = component.molarMass;
+            mathContext["_Tc"] = component.Tc;
+            mathContext["_Pc"] = component.Pc;
         }
     }
 
