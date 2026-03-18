@@ -1,26 +1,11 @@
-import { evaluate, parse } from "mathjs";
+import { evaluate, parse, unit } from "mathjs";
 
 export interface EvalContext {
     [variable: string]: number;
 }
 
-/**
- * Evaluate a single mathematical equation string with variable substitution.
- * Example: evaluateEquation("flow_rate * Cp * (Tin - Tout)", { flow_rate: 10, Cp: 4.18, Tin: 120, Tout: 60 })
- */
-export function evaluateEquation(
-    equation: string,
-    context: EvalContext
-): number | null {
-    try {
-        const result = evaluate(equation, context);
-        if (typeof result === "number" && isFinite(result)) {
-            return result;
-        }
-        return null;
-    } catch {
-        return null;
-    }
+export interface UnitMapping {
+    [variable: string]: string;
 }
 
 /**
@@ -31,6 +16,7 @@ export function parseEquation(equation: string): {
     output: string;
     expression: string;
 } | null {
+    if (!equation || !equation.includes("=")) return null;
     const parts = equation.split("=").map((s) => s.trim());
     if (parts.length !== 2) return null;
     return { output: parts[0], expression: parts[1] };
@@ -55,22 +41,64 @@ export function extractVariables(expression: string): string[] {
 }
 
 /**
- * Evaluate a set of equations in order, building up the context as we go.
- * Returns the full context including computed outputs.
+ * Handles unit-aware evaluation of node equations.
+ * normalizes inputs/parameters from their current units into the calculation space,
+ * evaluates, and then ensures outputs are mapped back to their defined units.
  */
 export function evaluateNodeEquations(
     equations: string[],
-    initialContext: EvalContext
+    initialContext: EvalContext,
+    variableUnits: UnitMapping = {}
 ): EvalContext {
     const context = { ...initialContext };
+    
+    // 1. Prepare unit-aware context using mathjs
+    const mathContext: Record<string, any> = {};
+    for (const [key, val] of Object.entries(context)) {
+        const unitStr = variableUnits[key];
+        if (unitStr) {
+            try {
+                // Create a unit object. Mathjs will handle conversions during math operations.
+                mathContext[key] = unit(val, unitStr);
+            } catch (err) {
+                console.warn(`Could not create unit for ${key} with unit ${unitStr}:`, err);
+                mathContext[key] = val;
+            }
+        } else {
+            mathContext[key] = val;
+        }
+    }
 
+    // 2. Evaluate equations sequentially
     for (const eq of equations) {
         const parsed = parseEquation(eq);
         if (!parsed) continue;
 
-        const result = evaluateEquation(parsed.expression, context);
-        if (result !== null) {
-            context[parsed.output] = result;
+        try {
+            const result = evaluate(parsed.expression, mathContext);
+            mathContext[parsed.output] = result;
+            
+            // Sync back to numeric context
+            if (typeof result === "object" && result && "value" in result) {
+                // If it's a unit, convert it to the specific unit defined for this output (if any)
+                const targetUnit = variableUnits[parsed.output] || result.formatUnits();
+                context[parsed.output] = result.toNumber(targetUnit);
+            } else if (typeof result === "number") {
+                context[parsed.output] = result;
+            }
+        } catch (err) {
+            console.error(`Evaluation error for "${eq}":`, err);
+        }
+    }
+
+    // 3. Final synchronization pass
+    for (const key of Object.keys(mathContext)) {
+        const val = mathContext[key];
+        if (typeof val === "object" && val && "value" in val) {
+            const targetUnit = variableUnits[key] || val.formatUnits();
+            context[key] = val.toNumber(targetUnit);
+        } else if (typeof val === "number") {
+            context[key] = val;
         }
     }
 

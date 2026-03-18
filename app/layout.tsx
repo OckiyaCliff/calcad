@@ -9,9 +9,9 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "ProcessLab — Collaborative Engineering Workspace",
+  title: "calCAd — Engineering Calculation Platform",
   description:
-    "Design process systems, perform engineering calculations, and collaborate on engineering models in real-time.",
+    "Design process systems, perform engineering calculations, and build custom unit operations with real-time computation.",
 };
 
 export default function RootLayout({

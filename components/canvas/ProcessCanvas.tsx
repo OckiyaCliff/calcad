@@ -13,8 +13,8 @@ import {
     BackgroundVariant,
     ReactFlowProvider,
     useReactFlow,
-    type Node,
-    type Edge,
+    type Node as FlowNode,
+    type Edge as FlowEdge,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
@@ -31,9 +31,9 @@ import { id as instantId, tx } from "@instantdb/react";
 type EngineNodeData = {
     nodeType: string;
     label: string;
-    parameters: Record<string, { value: number; unit?: string }>;
-    inputs: Record<string, number>;
-    computedOutputs: Record<string, number>;
+    parameters: Record<string, { value: number; unit: string }>;
+    inputs: Record<string, { value: number; unit: string }>;
+    computedOutputs: Record<string, { value: number; unit: string }>;
     equations: string[];
 };
 
@@ -46,7 +46,7 @@ let nodeIdCounter = 0;
 function createFlowNode(
     type: string,
     position: { x: number; y: number }
-): Node {
+): FlowNode {
     const def = getNodeDefinition(type);
     if (!def) {
         return {
@@ -69,20 +69,30 @@ function createFlowNode(
         parameters[p.name] = { value: p.defaultValue, unit: p.unit };
     }
 
-    // Build initial context from parameters
-    const initialContext: EvalContext = {};
-    for (const [key, param] of Object.entries(parameters)) {
-        initialContext[key] = param.value;
+    const inputs: Record<string, { value: number; unit: string }> = {};
+    for (const i of def.inputs) {
+        inputs[i.name] = { value: i.defaultValue ?? 0, unit: i.unit || "" };
     }
 
-    const computedOutputs = evaluateNodeEquations(def.equations, initialContext);
-    const outputs: Record<string, number> = {};
+    // Build initial context from parameters and inputs
+    const initialContext: EvalContext = {};
+    const initialUnits: Record<string, string> = {};
+    
+    for (const [key, param] of Object.entries(parameters)) {
+        initialContext[key] = param.value;
+        initialUnits[key] = param.unit;
+    }
+    for (const [key, input] of Object.entries(inputs)) {
+        initialContext[key] = input.value;
+        initialUnits[key] = input.unit;
+    }
+
+    const computedResults = evaluateNodeEquations(def.equations, initialContext, initialUnits);
+    const computedOutputs: Record<string, { value: number; unit: string }> = {};
+    
     for (const out of def.outputs) {
-        if (computedOutputs[out.name] !== undefined) {
-            outputs[out.name] = computedOutputs[out.name];
-        } else if (initialContext[out.name] !== undefined) {
-            outputs[out.name] = initialContext[out.name];
-        }
+        const val = computedResults[out.name] ?? 0;
+        computedOutputs[out.name] = { value: val, unit: out.unit || "" };
     }
 
     return {
@@ -93,8 +103,8 @@ function createFlowNode(
             nodeType: type,
             label: def.label,
             parameters,
-            inputs: {},
-            computedOutputs: outputs,
+            inputs,
+            computedOutputs,
             equations: def.equations,
         } as EngineNodeData,
     };
@@ -102,7 +112,7 @@ function createFlowNode(
 
 // ─── Persistence helpers ───────────────────────────────────────
 
-function serializeNodeForDB(node: Node, projectId: string) {
+function serializeNodeForDB(node: FlowNode, projectId: string) {
     const d = node.data as EngineNodeData;
     return {
         projectId,
@@ -117,7 +127,7 @@ function serializeNodeForDB(node: Node, projectId: string) {
     };
 }
 
-function deserializeNodeFromDB(dbNode: any): Node {
+function deserializeNodeFromDB(dbNode: any): FlowNode {
     return {
         id: dbNode.id,
         type: "engineNode",
@@ -133,7 +143,7 @@ function deserializeNodeFromDB(dbNode: any): Node {
     };
 }
 
-function serializeEdgeForDB(edge: Edge, projectId: string) {
+function serializeEdgeForDB(edge: FlowEdge, projectId: string) {
     return {
         projectId,
         source: edge.source,
@@ -143,7 +153,7 @@ function serializeEdgeForDB(edge: Edge, projectId: string) {
     };
 }
 
-function deserializeEdgeFromDB(dbEdge: any): Edge {
+function deserializeEdgeFromDB(dbEdge: any): FlowEdge {
     return {
         id: dbEdge.id,
         source: dbEdge.source,
@@ -158,9 +168,9 @@ function deserializeEdgeFromDB(dbEdge: any): Edge {
 // ─── Inner Canvas Component ────────────────────────────────────
 
 function ProcessCanvasInner({ projectId }: { projectId: string }) {
-    const [nodes, setNodes, onNodesChange] = useNodesState<Node>([] as Node[]);
-    const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([] as Edge[]);
-    const [selectedNode, setSelectedNode] = useState<Node | null>(null);
+    const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>([] as FlowNode[]);
+    const [edges, setEdges, onEdgesChange] = useEdgesState<FlowEdge>([] as FlowEdge[]);
+    const [selectedNode, setSelectedNode] = useState<FlowNode | null>(null);
     const reactFlowWrapper = useRef<HTMLDivElement>(null);
     const { screenToFlowPosition } = useReactFlow();
     const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -180,7 +190,6 @@ function ProcessCanvasInner({ projectId }: { projectId: string }) {
         const savedEdges = (savedData.edges || []).map(deserializeEdgeFromDB);
 
         if (savedNodes.length > 0) {
-            // Update the node id counter to avoid collisions
             for (const n of savedNodes) {
                 const match = n.id.match(/node_(\d+)/);
                 if (match) {
@@ -191,7 +200,6 @@ function ProcessCanvasInner({ projectId }: { projectId: string }) {
             setNodes(savedNodes);
             setEdges(savedEdges);
 
-            // Run recalculation after hydration
             setTimeout(() => {
                 runRecalculation(savedNodes, savedEdges);
             }, 100);
@@ -202,7 +210,7 @@ function ProcessCanvasInner({ projectId }: { projectId: string }) {
 
     // ─── Debounced save to InstantDB ───────────────────────────
     const saveToDB = useCallback(
-        (currentNodes: Node[], currentEdges: Edge[]) => {
+        (currentNodes: FlowNode[], currentEdges: FlowEdge[]) => {
             if (!projectId || !isHydratedRef.current || isSavingRef.current) return;
 
             if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -210,7 +218,6 @@ function ProcessCanvasInner({ projectId }: { projectId: string }) {
             saveTimerRef.current = setTimeout(async () => {
                 isSavingRef.current = true;
                 try {
-                    // Delete old data for this project
                     const existing = await db.queryOnce({
                         nodes: { $: { where: { projectId } } },
                         edges: { $: { where: { projectId } } },
@@ -224,23 +231,15 @@ function ProcessCanvasInner({ projectId }: { projectId: string }) {
                         deleteTxns.push(tx.edges[e.id].delete());
                     }
 
-                    // Create new data
                     const createTxns: any[] = [];
-                    const nodeIdMap = new Map<string, string>(); // flowId -> dbId
-
                     for (const node of currentNodes) {
                         const dbId = instantId();
-                        nodeIdMap.set(node.id, dbId);
-                        createTxns.push(
-                            tx.nodes[dbId].update(serializeNodeForDB(node, projectId))
-                        );
+                        createTxns.push(tx.nodes[dbId].update(serializeNodeForDB(node, projectId)));
                     }
 
                     for (const edge of currentEdges) {
                         const dbId = instantId();
-                        createTxns.push(
-                            tx.edges[dbId].update(serializeEdgeForDB(edge, projectId))
-                        );
+                        createTxns.push(tx.edges[dbId].update(serializeEdgeForDB(edge, projectId)));
                     }
 
                     if (deleteTxns.length > 0 || createTxns.length > 0) {
@@ -256,7 +255,6 @@ function ProcessCanvasInner({ projectId }: { projectId: string }) {
         [projectId]
     );
 
-    // Auto-save when nodes or edges change (after hydration)
     useEffect(() => {
         if (!isHydratedRef.current) return;
         saveToDB(nodes, edges);
@@ -264,29 +262,44 @@ function ProcessCanvasInner({ projectId }: { projectId: string }) {
 
     // ─── Recalculate graph ─────────────────────────────────────
     const runRecalculation = useCallback(
-        (currentNodes: Node[], currentEdges: Edge[]) => {
+        (currentNodes: FlowNode[], currentEdges: FlowEdge[]) => {
             const graphNodes = new Map<string, GraphNode>();
             for (const node of currentNodes) {
                 const d = node.data as EngineNodeData;
-                const params: Record<string, { value: number }> = {};
-                for (const [k, v] of Object.entries(d.parameters || {})) {
-                    params[k] = { value: v.value };
+                
+                const params: Record<string, { value: number; unit?: string }> = {};
+                if (d.parameters) {
+                    for (const [k, v] of Object.entries(d.parameters)) {
+                        params[k] = { value: v.value, unit: v.unit };
+                    }
                 }
 
-                const def = getNodeDefinition(d.nodeType);
-                const outputKeys: Record<string, number> = {};
-                if (def) {
-                    for (const out of def.outputs) {
-                        outputKeys[out.name] = 0;
+                const inputs: Record<string, number> = {};
+                const inputUnits: Record<string, string> = {};
+                if (d.inputs) {
+                    for (const [k, v] of Object.entries(d.inputs)) {
+                        inputs[k] = v.value;
+                        inputUnits[k] = v.unit;
+                    }
+                }
+
+                const outputs: Record<string, number> = {};
+                const outputUnits: Record<string, string> = {};
+                if (d.computedOutputs) {
+                    for (const [k, v] of Object.entries(d.computedOutputs)) {
+                        outputs[k] = v.value;
+                        outputUnits[k] = v.unit;
                     }
                 }
 
                 graphNodes.set(node.id, {
                     id: node.id,
                     parameters: params,
-                    inputs: { ...(d.inputs || {}) },
-                    outputs: outputKeys,
-                    equations: d.equations || def?.equations || [],
+                    inputs,
+                    outputs,
+                    inputUnits,
+                    outputUnits,
+                    equations: d.equations || [],
                 });
             }
 
@@ -299,17 +312,33 @@ function ProcessCanvasInner({ projectId }: { projectId: string }) {
 
             const results = recalculateGraph(graphNodes, graphEdges);
 
-            setNodes((nds: Node[]) =>
-                nds.map((node: Node) => {
+            setNodes((nds: FlowNode[]) =>
+                nds.map((node: FlowNode) => {
                     const nodeResults = results.get(node.id);
-                    const graphNode = graphNodes.get(node.id);
                     if (nodeResults) {
+                        const data = node.data as EngineNodeData;
+                        const updatedOutputs: Record<string, { value: number; unit: string }> = {};
+                        
+                        Object.entries(data.computedOutputs || {}).forEach(([k, v]) => {
+                            updatedOutputs[k] = { 
+                                value: nodeResults[k] ?? v.value, 
+                                unit: v.unit 
+                            };
+                        });
+
                         return {
                             ...node,
                             data: {
-                                ...(node.data as EngineNodeData),
-                                computedOutputs: nodeResults,
-                                inputs: graphNode?.inputs || (node.data as EngineNodeData).inputs,
+                                ...data,
+                                computedOutputs: updatedOutputs,
+                                // Sync inputs back too
+                                inputs: graphNodes.get(node.id)?.inputs 
+                                    ? Object.fromEntries(
+                                        Object.entries(graphNodes.get(node.id)!.inputs).map(([k, v]) => [
+                                            k, { value: v, unit: data.inputs[k]?.unit || "" }
+                                        ])
+                                    ) 
+                                    : data.inputs,
                             },
                         };
                     }
@@ -320,25 +349,23 @@ function ProcessCanvasInner({ projectId }: { projectId: string }) {
         [setNodes]
     );
 
-    // ─── Connection handler ────────────────────────────────────
     const onConnect = useCallback(
         (connection: Connection) => {
-            setEdges((eds: Edge[]) => {
+            setEdges((eds: FlowEdge[]) => {
                 const newEdges = addEdge(connection, eds);
                 setTimeout(() => {
-                    setNodes((currentNodes: Node[]) => {
-                        runRecalculation(currentNodes, newEdges as Edge[]);
+                    setNodes((currentNodes: FlowNode[]) => {
+                        runRecalculation(currentNodes, newEdges as FlowEdge[]);
                         return currentNodes;
                     });
                 }, 0);
-                return newEdges as Edge[];
+                return newEdges as FlowEdge[];
             });
         },
         [setEdges, setNodes, runRecalculation]
     );
 
-    // ─── Selection handlers ────────────────────────────────────
-    const onNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
+    const onNodeClick = useCallback((_: React.MouseEvent, node: FlowNode) => {
         setSelectedNode(node);
     }, []);
 
@@ -346,18 +373,11 @@ function ProcessCanvasInner({ projectId }: { projectId: string }) {
         setSelectedNode(null);
     }, []);
 
-    // ─── Deletion handlers ─────────────────────────────────────
     const onNodesDelete = useCallback(
-        (deletedNodes: Node[]) => {
-            setSelectedNode((prev) => {
-                if (prev && deletedNodes.some((n) => n.id === prev.id)) {
-                    return null;
-                }
-                return prev;
-            });
+        (deletedNodes: FlowNode[]) => {
             setTimeout(() => {
-                setNodes((currentNodes: Node[]) => {
-                    setEdges((currentEdges: Edge[]) => {
+                setNodes((currentNodes: FlowNode[]) => {
+                    setEdges((currentEdges: FlowEdge[]) => {
                         runRecalculation(currentNodes, currentEdges);
                         return currentEdges;
                     });
@@ -370,62 +390,17 @@ function ProcessCanvasInner({ projectId }: { projectId: string }) {
 
     const onDeleteNode = useCallback(
         (nodeId: string) => {
-            setNodes((nds: Node[]) => nds.filter((n) => n.id !== nodeId));
-            setEdges((eds: Edge[]) => eds.filter((e) => e.source !== nodeId && e.target !== nodeId));
+            setNodes((nds: FlowNode[]) => nds.filter((n) => n.id !== nodeId));
+            setEdges((eds: FlowEdge[]) => eds.filter((e) => e.source !== nodeId && e.target !== nodeId));
             setSelectedNode(null);
-            setTimeout(() => {
-                setNodes((currentNodes: Node[]) => {
-                    setEdges((currentEdges: Edge[]) => {
-                        runRecalculation(currentNodes, currentEdges);
-                        return currentEdges;
-                    });
-                    return currentNodes;
-                });
-            }, 0);
         },
-        [setNodes, setEdges, runRecalculation]
+        [setNodes, setEdges]
     );
 
-    // ─── Add node handlers ─────────────────────────────────────
-    const addNode = useCallback(
-        (type: string) => {
-            const position = {
-                x: 250 + Math.random() * 200,
-                y: 150 + Math.random() * 200,
-            };
-            const newNode = createFlowNode(type, position);
-            setNodes((nds: Node[]) => [...nds, newNode]);
-        },
-        [setNodes]
-    );
-
-    const onDragOver = useCallback((e: React.DragEvent) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "move";
-    }, []);
-
-    const onDrop = useCallback(
-        (e: React.DragEvent) => {
-            e.preventDefault();
-            const type = e.dataTransfer.getData("application/processlab-node");
-            if (!type) return;
-
-            const position = screenToFlowPosition({
-                x: e.clientX,
-                y: e.clientY,
-            });
-
-            const newNode = createFlowNode(type, position);
-            setNodes((nds: Node[]) => [...nds, newNode]);
-        },
-        [screenToFlowPosition, setNodes]
-    );
-
-    // ─── Parameter update handler ──────────────────────────────
     const onUpdateParameter = useCallback(
-        (nodeId: string, paramName: string, value: number) => {
-            setNodes((nds: Node[]) => {
-                const updatedNodes = nds.map((node: Node) => {
+        (nodeId: string, paramName: string, value: number, unit?: string) => {
+            setNodes((nds: FlowNode[]) => {
+                const updatedNodes = nds.map((node: FlowNode) => {
                     if (node.id !== nodeId) return node;
                     const d = node.data as EngineNodeData;
                     return {
@@ -435,93 +410,45 @@ function ProcessCanvasInner({ projectId }: { projectId: string }) {
                             parameters: {
                                 ...d.parameters,
                                 [paramName]: {
-                                    ...(d.parameters?.[paramName] || {}),
                                     value,
+                                    unit: unit || d.parameters[paramName]?.unit || "",
                                 },
                             },
                         },
                     };
                 });
-
-                setEdges((currentEdges: Edge[]) => {
-                    setTimeout(
-                        () => runRecalculation(updatedNodes, currentEdges),
-                        0
-                    );
-                    return currentEdges;
-                });
-
-                const updatedSelected = updatedNodes.find((n) => n.id === nodeId);
-                if (updatedSelected) {
-                    setSelectedNode(updatedSelected);
-                }
-
+                runRecalculation(updatedNodes, edges);
                 return updatedNodes;
             });
         },
-        [setNodes, setEdges, runRecalculation]
+        [setNodes, runRecalculation, edges]
     );
 
-    // Sync selectedNode when main nodes array updates
-    useEffect(() => {
-        if (selectedNode) {
-            const updated = nodes.find((n) => n.id === selectedNode.id);
-            if (updated && updated !== selectedNode) {
-                setSelectedNode(updated);
-            }
-        }
-    }, [nodes, selectedNode]);
-
-    // ─── Loading state ─────────────────────────────────────────
-    if (isLoadingData) {
-        return (
-            <div className="flex items-center justify-center h-full">
-                <div className="flex flex-col items-center gap-3">
-                    <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                    <p className="text-sm text-muted-foreground">Loading canvas...</p>
-                </div>
-            </div>
-        );
-    }
-
     return (
-        <div className="flex h-full">
-            <NodePalette onAddNode={addNode} />
-            <div className="flex-1 relative" ref={reactFlowWrapper}>
+        <div className="flex h-full w-full overflow-hidden">
+            <NodePalette onAddNode={(type) => setNodes((nds) => [...nds, createFlowNode(type, { x: 250, y: 150 })])} />
+            
+            <div className="relative flex-1" ref={reactFlowWrapper}>
                 <ReactFlow
                     nodes={nodes}
                     edges={edges}
                     onNodesChange={onNodesChange}
                     onEdgesChange={onEdgesChange}
                     onConnect={onConnect}
-                    onNodesDelete={onNodesDelete}
-                    deleteKeyCode={["Backspace", "Delete"]}
                     onNodeClick={onNodeClick}
                     onPaneClick={onPaneClick}
-                    onDragOver={onDragOver}
-                    onDrop={onDrop}
+                    onNodesDelete={onNodesDelete}
                     nodeTypes={nodeTypes}
                     fitView
-                    className="bg-background"
-                    defaultEdgeOptions={{
-                        style: { stroke: "oklch(0.65 0.18 250)", strokeWidth: 2 },
-                        animated: true,
-                    }}
+                    snapToGrid
+                    snapGrid={[15, 15]}
                 >
-                    <Background
-                        variant={BackgroundVariant.Dots}
-                        gap={24}
-                        size={1}
-                        color="oklch(0.4 0.05 240 / 0.3)"
-                    />
-                    <Controls className="!bg-card !border-border !shadow-lg" />
-                    <MiniMap
-                        className="!bg-card !border-border"
-                        nodeColor="oklch(0.65 0.18 250)"
-                        maskColor="oklch(0.1 0.02 260 / 0.7)"
-                    />
+                    <Background variant={BackgroundVariant.Dots} gap={30} size={1} />
+                    <Controls />
+                    <MiniMap zoomable pannable />
                 </ReactFlow>
             </div>
+
             {selectedNode && (
                 <PropertiesPanel
                     selectedNode={selectedNode}

@@ -60,18 +60,21 @@ function EngineNodeComponent({ data, selected }: NodeProps) {
             {/* Parameters */}
             <div className="px-3 py-2 space-y-1">
                 {def?.parameters.map((param) => {
-                    const value = nodeData.parameters?.[param.name]?.value ?? param.defaultValue;
+                    const paramData = nodeData.parameters?.[param.name];
+                    const value = paramData?.value ?? param.defaultValue;
+                    const unitStr = paramData?.unit ?? param.unit;
+                    
                     return (
                         <div
                             key={param.name}
                             className="flex items-center justify-between text-[10px]"
                         >
                             <span className="text-muted-foreground">{param.label}</span>
-                            <span className="font-mono text-foreground">
-                                {typeof value === "number" ? value.toFixed(2) : value}
-                                {param.unit && (
-                                    <span className="text-muted-foreground ml-0.5">
-                                        {param.unit}
+                            <span className="font-mono text-foreground flex items-center gap-1">
+                                <span>{typeof value === "number" ? value.toFixed(2) : value}</span>
+                                {unitStr && (
+                                    <span className="text-muted-foreground text-[8px] font-sans">
+                                        {unitStr}
                                     </span>
                                 )}
                             </span>
@@ -83,8 +86,11 @@ function EngineNodeComponent({ data, selected }: NodeProps) {
             {/* Outputs */}
             {Object.keys(outputs).length > 0 && (
                 <div className="px-3 py-2 border-t border-border/30 space-y-1">
-                    {Object.entries(outputs).map(([key, val]) => {
+                    {Object.entries(outputs).map(([key, val]: [string, any]) => {
                         const outDef = def?.outputs.find((o) => o.name === key);
+                        const displayVal = typeof val === "object" ? val.value : val;
+                        const displayUnit = typeof val === "object" ? val.unit : (outDef?.unit || "");
+                        
                         return (
                             <div
                                 key={key}
@@ -93,11 +99,11 @@ function EngineNodeComponent({ data, selected }: NodeProps) {
                                 <span className="text-muted-foreground">
                                     {outDef?.label || key}
                                 </span>
-                                <span className="font-mono font-semibold" style={{ color }}>
-                                    {typeof val === "number" ? (val as number).toFixed(2) : String(val)}
-                                    {outDef?.unit && (
-                                        <span className="text-muted-foreground ml-0.5">
-                                            {outDef.unit}
+                                <span className="font-mono font-semibold flex items-center gap-1" style={{ color }}>
+                                    <span>{typeof displayVal === "number" ? displayVal.toFixed(2) : String(displayVal)}</span>
+                                    {displayUnit && (
+                                        <span className="text-muted-foreground text-[8px] font-sans">
+                                            {displayUnit}
                                         </span>
                                     )}
                                 </span>

@@ -1,10 +1,13 @@
-import { evaluateNodeEquations, EvalContext } from "./evaluator";
+import { evaluateNodeEquations, EvalContext, UnitMapping } from "./evaluator";
+import { convertUnit } from "./units";
 
 export interface GraphNode {
     id: string;
-    parameters: Record<string, { value: number }>;
+    parameters: Record<string, { value: number; unit?: string }>;
     inputs: Record<string, number>;
     outputs: Record<string, number>;
+    inputUnits?: Record<string, string>;
+    outputUnits?: Record<string, string>;
     equations: string[];
 }
 
@@ -36,7 +39,6 @@ function buildAdjacencyList(
 
 /**
  * Topological sort using Kahn's algorithm.
- * Returns nodes in execution order.
  */
 export function topologicalSort(
     nodeIds: string[],
@@ -80,33 +82,8 @@ export function topologicalSort(
 }
 
 /**
- * Get all downstream node IDs starting from a changed node.
- */
-export function getDownstreamNodes(
-    changedNodeId: string,
-    edges: GraphEdge[]
-): Set<string> {
-    const adj = buildAdjacencyList(edges);
-    const visited = new Set<string>();
-    const queue = [changedNodeId];
-
-    while (queue.length > 0) {
-        const current = queue.shift()!;
-        if (visited.has(current)) continue;
-        visited.add(current);
-
-        for (const neighbor of adj.get(current) || []) {
-            queue.push(neighbor.targetId);
-        }
-    }
-
-    visited.delete(changedNodeId); // Don't include the changed node itself
-    return visited;
-}
-
-/**
  * Re-evaluate the entire graph. Called when a node changes.
- * Returns updated node outputs.
+ * Handles unit conversion during propagation.
  */
 export function recalculateGraph(
     nodes: Map<string, GraphNode>,
@@ -121,23 +98,34 @@ export function recalculateGraph(
         const node = nodes.get(nodeId);
         if (!node) continue;
 
-        // Build context from parameters
+        // 1. Build context and unit mapping
         const context: EvalContext = {};
+        const unitMapping: UnitMapping = {};
+
+        // Add parameters
         for (const [key, param] of Object.entries(node.parameters)) {
             context[key] = param.value;
+            if (param.unit) unitMapping[key] = param.unit;
         }
 
         // Add inputs from upstream connections
         for (const [key, val] of Object.entries(node.inputs)) {
-            if (typeof val === "number") {
-                context[key] = val;
+            context[key] = val;
+            const inputUnit = node.inputUnits?.[key];
+            if (inputUnit) unitMapping[key] = inputUnit;
+        }
+
+        // Ensure output units are in the mapping so mathjs knows how to convert the result
+        if (node.outputUnits) {
+            for (const [key, unitStr] of Object.entries(node.outputUnits)) {
+                unitMapping[key] = unitStr;
             }
         }
 
-        // Evaluate equations
-        const fullContext = evaluateNodeEquations(node.equations, context);
+        // 2. Evaluate equations with unit awareness
+        const fullContext = evaluateNodeEquations(node.equations, context, unitMapping);
 
-        // Extract outputs
+        // 3. Extract outputs
         const outputs: Record<string, number> = {};
         for (const key of Object.keys(node.outputs)) {
             if (fullContext[key] !== undefined) {
@@ -147,13 +135,25 @@ export function recalculateGraph(
 
         results.set(nodeId, outputs);
 
-        // Propagate outputs to downstream nodes
+        // 4. Propagate outputs to downstream nodes with AUTO-CONVERSION
         for (const connection of adj.get(nodeId) || []) {
             const targetNode = nodes.get(connection.targetId);
             if (targetNode && connection.sourceHandle && connection.targetHandle) {
-                const outputVal = outputs[connection.sourceHandle];
-                if (outputVal !== undefined) {
-                    targetNode.inputs[connection.targetHandle] = outputVal;
+                const sourceVal = outputs[connection.sourceHandle];
+                if (sourceVal !== undefined) {
+                    const sourceUnit = node.outputUnits?.[connection.sourceHandle];
+                    const targetUnit = targetNode.inputUnits?.[connection.targetHandle];
+
+                    let finalValue = sourceVal;
+                    // If target unit is different, perform automatic conversion
+                    if (sourceUnit && targetUnit && sourceUnit !== targetUnit) {
+                        const converted = convertUnit(sourceVal, sourceUnit, targetUnit);
+                        if (converted !== null) {
+                            finalValue = converted;
+                        }
+                    }
+                    
+                    targetNode.inputs[connection.targetHandle] = finalValue;
                 }
             }
         }

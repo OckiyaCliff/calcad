@@ -5,11 +5,11 @@
   <img src="https://img.shields.io/badge/TypeScript-5-blue?style=for-the-badge&logo=typescript" alt="TypeScript" />
 </p>
 
-# ⚗️ ProcessLab
+# 📐 calCAd
 
-**The collaborative engineering workspace for designing process systems, performing calculations, and building custom engineering models — entirely in the browser.**
+**The engineering calculation platform for designing process systems, performing calculations, and building custom engineering models — entirely in the browser.**
 
-ProcessLab is a web-native platform that brings the power of traditional desktop engineering tools (like Aspen HYSYS, Aspen Plus) into a modern, collaborative, browser-based environment — inspired by tools like Figma and GitHub.
+calCAd is a web-native platform that brings the power of traditional desktop engineering tools into a modern, collaborative, browser-based environment — inspired by tools like Figma and GitHub.
 
 ---
 
@@ -26,7 +26,7 @@ ProcessLab is a web-native platform that brings the power of traditional desktop
 - Equation evaluation using `mathjs` with variable substitution
 - Topological sort-based dependency resolution
 - Automatic downstream recalculation when upstream parameters change
-- Unit-aware calculations with SI/Imperial conversion support
+- **[New]** Unit-aware calculations with SI/Imperial conversion support
 
 ### 🧩 Custom Node Builder
 - Create your own engineering calculation nodes
@@ -73,8 +73,6 @@ Create a `.env.local` file in the project root:
 NEXT_PUBLIC_INSTANT_APP_ID=your-instantdb-app-id
 ```
 
-> Get your free app ID from [https://instantdb.com](https://instantdb.com)
-
 ### Development
 
 ```bash
@@ -85,9 +83,39 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ---
 
+## 🗺️ Roadmap
+
+### Phase 1 — MVP ✅
+- [x] Authentication
+- [x] Workspace + project system
+- [x] Process canvas with 7 unit operations
+- [x] Live calculation engine
+- [x] Custom node builder
+
+### Phase 2 — Core Product ✅
+- [x] Canvas state persistence to InstantDB
+- [x] Full Calculations summary tab
+- [x] CSV/JSON Data Export
+- [x] Template library (4 built-in process trains)
+- [x] Node/Edge deletion (keys + UI button)
+
+### Phase 3 — Engineering Intelligence 🏗️
+- [ ] **Robust Dynamic Unit System**: mathjs-powered dimensional conversion
+- [ ] **Persistent Custom Nodes**: Store node schemas in InstantDB
+- [ ] **Iterative Solvers**: Support for recycle streams (Newton-Raphson)
+- [ ] **Global Unit Preferences**: Project-wide SI vs Imperial toggle
+
+### Phase 4 — Platform
+- [ ] Real-time collaboration with presence
+- [ ] AI engineering assistant
+- [ ] Simulation versioning & state snapshots
+- [ ] PDF report generation
+
+---
+
 ## 📐 5 Practical Case Studies
 
-Below are five real engineering problems you can solve using ProcessLab right now.
+Below are five real engineering problems you can solve using **calCAd** right now.
 
 ---
 
@@ -95,8 +123,7 @@ Below are five real engineering problems you can solve using ProcessLab right no
 
 **Problem:** A chemical plant needs to cool a process stream from 120°C to 60°C. The stream flows at 10 kg/s with a heat capacity (Cp) of 4.18 kJ/(kg·°C). What is the heat duty?
 
-**How to solve in ProcessLab:**
-
+**How to solve in calCAd:**
 1. Open a project and go to the **Process Canvas**
 2. Drag a **Stream** node onto the canvas
 3. Set parameters: `Temperature = 120`, `Flow Rate = 10`, `Cp = 4.18`
@@ -104,22 +131,17 @@ Below are five real engineering problems you can solve using ProcessLab right no
 5. Set the Heat Exchanger `Outlet Temp = 60`
 6. The properties panel instantly shows: **Q = 2,508 kW**
 
-> **Result:** The engine automatically evaluates `Q = flow_rate × Cp × (Tin - Tout)` = 10 × 4.18 × (120 - 60) = **2,508 kW** of cooling duty required.
-
 ---
 
 ### Case Study 2: Pump Sizing for a Pipeline
 
 **Problem:** A water transfer pump needs to increase pressure from 101.3 kPa to 501.3 kPa at a flow rate of 5 kg/s. The pump efficiency is 70%. What power is required?
 
-**How to solve in ProcessLab:**
-
+**How to solve in calCAd:**
 1. Drag a **Stream** node → set `Flow Rate = 5`, `Pressure = 101.3`
 2. Connect it to a **Pump** node
 3. Set Pump parameters: `Pressure Rise (dP) = 400`, `Efficiency = 0.70`, `Density = 1000`
 4. The output shows: **W = 2.86 kW**
-
-> **Result:** The calculation `W = flow_rate × dP / (density × efficiency)` = 5 × 400 / (1000 × 0.7) = **2.86 kW**. The engineer can now select an appropriate motor.
 
 ---
 
@@ -127,8 +149,7 @@ Below are five real engineering problems you can solve using ProcessLab right no
 
 **Problem:** A reactor receives 50 kg/s of feed. The expected conversion is 85% and selectivity is 92%. What is the product rate and how much feed remains unreacted?
 
-**How to solve in ProcessLab:**
-
+**How to solve in calCAd:**
 1. Drag a **Stream** node → set `Flow Rate = 50`
 2. Connect to a **Reactor** node
 3. Set `Conversion = 0.85`, `Selectivity = 0.92`
@@ -136,52 +157,30 @@ Below are five real engineering problems you can solve using ProcessLab right no
    - **Product Rate = 39.10 kg/s**
    - **Unreacted = 7.50 kg/s**
 
-> **Result:** `product_rate = 50 × 0.85 × 0.92 = 39.10 kg/s` and `unreacted = 50 × (1 - 0.85) = 7.50 kg/s`. The engineer immediately sees the mass balance.
-
 ---
 
-### Case Study 4: Multi-Equipment Process Flow (Feed → Pump → Heater → Reactor)
+### Case Study 4: Multi-Equipment Process Flow
 
-**Problem:** Design a complete process: pump raw feed, heat it, then react it. The feed enters at 25°C, 101.3 kPa, at 8 kg/s. The pump adds 300 kPa. The heater raises temperature to 150°C. The reactor achieves 90% conversion.
+**Problem:** Design a complete process: pump raw feed, heat it, then react it. The feed enters at 25°C, 101.3 kPa, at 8 kg/s.
 
-**How to solve in ProcessLab:**
-
+**How to solve in calCAd:**
 1. Place a **Stream** node: `Temp = 25`, `Pressure = 101.3`, `Flow Rate = 8`, `Cp = 4.18`
 2. Connect to a **Pump**: `dP = 300`, `Efficiency = 0.75`, `Density = 950`
 3. Connect to a **Heater**: `Tout = 150`
 4. Connect to a **Reactor**: `Conversion = 0.90`, `Selectivity = 0.95`
-5. The entire chain recalculates automatically:
-   - Pump Power: **3.37 kW**
-   - Heater Duty: **4,180 kW**
-   - Product Rate: **6.84 kg/s**
-
-> **Result:** ProcessLab's topological sort ensures calculation order is always correct. Changing the feed flow rate instantly propagates through the entire process.
+5. The entire chain recalculates automatically.
 
 ---
 
 ### Case Study 5: Custom Node — Reynolds Number Calculator
 
-**Problem:** An engineer frequently needs to calculate Reynolds numbers for pipe flow but there's no built-in node for it. Build a reusable calculator.
+**Problem:** Build a reusable calculator for Reynolds numbers (`Re = density * velocity * diameter / viscosity`).
 
-**How to solve in ProcessLab:**
-
+**How to solve in calCAd:**
 1. Navigate to the **Node Builder** tab
-2. Create a new node:
-   - **Name:** "Reynolds Number"
-   - **Category:** "Fluid Mechanics"
-3. Define **Inputs:**
-   - `velocity` (m/s, default: 2)
-   - `diameter` (m, default: 0.05)
-   - `density` (kg/m³, default: 1000)
-   - `viscosity` (Pa·s, default: 0.001)
-4. Define **Equation:**
-   - `Re = density * velocity * diameter / viscosity`
-5. Define **Output:**
-   - `Re` (Reynolds Number)
-6. Click **Test Equations** → Preview shows Re = 100,000
-7. Click **Save Node** → It's now in the palette!
-
-> **Result:** The custom "Reynolds Number" node is immediately available on the canvas and can be connected to other nodes in any project. Re = 1000 × 2 × 0.05 / 0.001 = **100,000** (turbulent flow confirmed).
+2. Create a new node with inputs for `velocity`, `diameter`, `density`, and `viscosity`
+3. Define the equation: `Re = density * velocity * diameter / viscosity`
+4. Save the node; it is now available in your project palette.
 
 ---
 
@@ -195,76 +194,9 @@ Below are five real engineering problems you can solve using ProcessLab right no
 | Math Engine | mathjs |
 | Database | InstantDB (realtime, collaborative) |
 | Language | TypeScript |
-| Package Manager | pnpm |
-
----
-
-## 📁 Project Structure
-
-```
-app/
-├── (auth)/login/         # Authentication
-├── (app)/
-│   ├── dashboard/        # Workspace & projects
-│   └── project/[id]/
-│       ├── canvas/       # Process design canvas
-│       ├── calculations/ # Engineering calculations
-│       └── node-builder/ # Custom node creator
-components/
-├── layout/               # AppShell, Sidebar, Topbar
-├── canvas/               # ProcessCanvas, NodePalette, PropertiesPanel
-├── nodes/                # EngineNode (React Flow custom node)
-├── project/              # ProjectCard, CreateProjectDialog
-└── ui/                   # shadcn component library
-lib/
-├── engine/
-│   ├── evaluator.ts      # mathjs equation parser
-│   ├── graph.ts          # Dependency graph + topological sort
-│   └── units.ts          # Unit conversion utilities
-├── nodes/
-│   ├── registry.ts       # Node type registry
-│   └── definitions/      # Built-in node definitions
-└── instantdb.ts          # InstantDB client + schema
-```
-
----
-
-## 🗺️ Roadmap
-
-### Phase 1 — MVP ✅
-- [x] Authentication
-- [x] Workspace + project system
-- [x] Process canvas with 7 unit operations
-- [x] Live calculation engine
-- [x] Custom node builder
-
-### Phase 2 — Core Product
-- [ ] Canvas state persistence to InstantDB
-- [ ] Real-time collaboration with presence
-- [ ] Template library
-- [ ] Export reports (PDF/CSV)
-- [ ] Version history
-
-### Phase 3 — Platform
-- [ ] Simulation engine (Python)
-- [ ] AI engineering assistant
-- [ ] Public model sharing
-- [ ] Plugin ecosystem
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! Please open an issue first to discuss what you'd like to change.
-
----
-
-## 📄 License
-
-[MIT](LICENSE)
 
 ---
 
 <p align="center">
-  <strong>ProcessLab</strong> — The collaborative engineering workspace for the modern engineer.
+  <strong>calCAd</strong> — The collaborative engineering workspace for the modern engineer.
 </p>

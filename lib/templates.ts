@@ -1,4 +1,4 @@
-// Built-in process templates for ProcessLab
+// Built-in process templates for calCAd
 
 export interface ProcessTemplate {
     id: string;

@@ -159,10 +159,10 @@ export default function LoginPage() {
                         )}
                     </div>
                     <h1 className="text-3xl font-bold text-white tracking-tight mb-2">
-                        ProcessLab
+                        calCAd
                     </h1>
                     <p className="text-blue-200/60 font-medium tracking-wide text-xs uppercase">
-                        Engineering Intelligence Platform
+                        Engineering Calculation Platform
                     </p>
                 </div>
 

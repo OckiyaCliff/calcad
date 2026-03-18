@@ -7,10 +7,18 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { X, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { 
+    Select, 
+    SelectContent, 
+    SelectItem, 
+    SelectTrigger, 
+    SelectValue 
+} from "@/components/ui/select";
+import { getCompatibleUnits, convertUnit } from "@/lib/engine/units";
 
 interface PropertiesPanelProps {
     selectedNode: any;
-    onUpdateParameter: (nodeId: string, paramName: string, value: number) => void;
+    onUpdateParameter: (nodeId: string, paramName: string, value: number, unit?: string) => void;
     onDeleteNode: (nodeId: string) => void;
     onClose: () => void;
 }
@@ -27,6 +35,7 @@ export function PropertiesPanel({
     if (!def) return null;
 
     const outputs = selectedNode.data.computedOutputs || {};
+    const inputs = selectedNode.data.inputs || {};
 
     return (
         <div className="w-[280px] border-l border-border bg-sidebar flex flex-col h-full">
@@ -54,34 +63,60 @@ export function PropertiesPanel({
                             </p>
                             <div className="space-y-3">
                                 {def.parameters.map((param) => {
-                                    const currentValue =
-                                        selectedNode.data.parameters?.[param.name]?.value ??
-                                        param.defaultValue;
+                                    const paramData = selectedNode.data.parameters?.[param.name];
+                                    const currentValue = paramData?.value ?? param.defaultValue;
+                                    const currentUnit = paramData?.unit ?? param.unit;
+                                    const compatibleUnits = getCompatibleUnits(currentUnit);
+
                                     return (
                                         <div key={param.name} className="space-y-1.5">
                                             <div className="flex items-center justify-between">
                                                 <Label className="text-xs">{param.label}</Label>
-                                                {param.unit && (
-                                                    <span className="text-[10px] text-muted-foreground">
-                                                        {param.unit}
-                                                    </span>
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <Input
+                                                    type="number"
+                                                    value={currentValue}
+                                                    step="any"
+                                                    min={param.min}
+                                                    max={param.max}
+                                                    onChange={(e) =>
+                                                        onUpdateParameter(
+                                                            selectedNode.id,
+                                                            param.name,
+                                                            parseFloat(e.target.value) || 0,
+                                                            currentUnit
+                                                        )
+                                                    }
+                                                    className="h-8 text-sm font-mono flex-1 text-right"
+                                                />
+                                                {compatibleUnits.length > 0 && (
+                                                    <Select
+                                                        value={currentUnit}
+                                                        onValueChange={(newUnit: string) => {
+                                                            // Auto-convert value if we have a valid conversion
+                                                            const convertedValue = convertUnit(currentValue, currentUnit, newUnit);
+                                                            onUpdateParameter(
+                                                                selectedNode.id,
+                                                                param.name,
+                                                                convertedValue ?? currentValue,
+                                                                newUnit
+                                                            );
+                                                        }}
+                                                    >
+                                                        <SelectTrigger className="h-8 w-[80px] text-[10px] px-2 font-sans bg-background">
+                                                            <SelectValue />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            {compatibleUnits.map((u) => (
+                                                                <SelectItem key={u} value={u} className="text-[11px]">
+                                                                    {u}
+                                                                </SelectItem>
+                                                            ))}
+                                                        </SelectContent>
+                                                    </Select>
                                                 )}
                                             </div>
-                                            <Input
-                                                type="number"
-                                                value={currentValue}
-                                                step="any"
-                                                min={param.min}
-                                                max={param.max}
-                                                onChange={(e) =>
-                                                    onUpdateParameter(
-                                                        selectedNode.id,
-                                                        param.name,
-                                                        parseFloat(e.target.value) || 0
-                                                    )
-                                                }
-                                                className="h-8 text-sm font-mono"
-                                            />
                                         </div>
                                     );
                                 })}
@@ -120,8 +155,11 @@ export function PropertiesPanel({
                                     Outputs
                                 </p>
                                 <div className="space-y-2">
-                                    {Object.entries(outputs).map(([key, val]) => {
+                                    {Object.entries(outputs).map(([key, val]: [string, any]) => {
                                         const outDef = def.outputs.find((o) => o.name === key);
+                                        const displayVal = typeof val === "object" ? val.value : val;
+                                        const displayUnit = typeof val === "object" ? val.unit : (outDef?.unit || "");
+
                                         return (
                                             <div
                                                 key={key}
@@ -131,12 +169,12 @@ export function PropertiesPanel({
                                                     {outDef?.label || key}
                                                 </span>
                                                 <span className="text-xs font-mono font-semibold text-primary">
-                                                    {typeof val === "number"
-                                                        ? (val as number).toFixed(3)
-                                                        : String(val)}
-                                                    {outDef?.unit && (
-                                                        <span className="text-muted-foreground ml-1 font-normal">
-                                                            {outDef.unit}
+                                                    {typeof displayVal === "number"
+                                                        ? displayVal.toFixed(3)
+                                                        : String(displayVal)}
+                                                    {displayUnit && (
+                                                        <span className="text-muted-foreground ml-1 font-normal text-[9px] font-sans">
+                                                            {displayUnit}
                                                         </span>
                                                     )}
                                                 </span>
@@ -149,7 +187,7 @@ export function PropertiesPanel({
                     )}
 
                     {/* Inputs Section */}
-                    {def.inputs.length > 0 && (
+                    {Object.keys(inputs).length > 0 && (
                         <>
                             <Separator />
                             <div>
@@ -157,21 +195,24 @@ export function PropertiesPanel({
                                     Inputs (from connections)
                                 </p>
                                 <div className="space-y-2">
-                                    {def.inputs.map((inp) => {
-                                        const val = selectedNode.data.inputs?.[inp.name];
+                                    {Object.entries(inputs).map(([key, val]: [string, any]) => {
+                                        const inpDef = def.inputs.find((i) => i.name === key);
+                                        const displayVal = typeof val === "object" ? val.value : val;
+                                        const displayUnit = typeof val === "object" ? val.unit : (inpDef?.unit || "");
+
                                         return (
                                             <div
-                                                key={inp.name}
+                                                key={key}
                                                 className="flex items-center justify-between px-2.5 py-1.5 rounded-md bg-muted/30"
                                             >
                                                 <span className="text-xs text-muted-foreground">
-                                                    {inp.label}
+                                                    {inpDef?.label || key}
                                                 </span>
                                                 <span className="text-xs font-mono">
-                                                    {val !== undefined ? (typeof val === 'number' ? val.toFixed(3) : val) : "—"}
-                                                    {inp.unit && (
-                                                        <span className="text-muted-foreground ml-1">
-                                                            {inp.unit}
+                                                    {displayVal !== undefined ? (typeof displayVal === 'number' ? displayVal.toFixed(3) : displayVal) : "—"}
+                                                    {displayUnit && (
+                                                        <span className="text-muted-foreground ml-1 text-[9px] font-sans">
+                                                            {displayUnit}
                                                         </span>
                                                     )}
                                                 </span>

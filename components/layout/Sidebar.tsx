@@ -62,7 +62,7 @@ export function Sidebar() {
                 </div>
                 {!collapsed && (
                     <span className="font-semibold text-sm tracking-tight text-foreground">
-                        ProcessLab
+                        calCAd
                     </span>
                 )}
             </div>
