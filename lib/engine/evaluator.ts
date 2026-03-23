@@ -1,7 +1,7 @@
 import { evaluate, parse, unit } from "mathjs";
 import { registry } from "./properties/registry";
 import { resolveComponentProperty, resolveMixtureProperty } from "./properties/evaluator";
-import { State } from "./properties/types";
+import { State, Component } from "./properties/types";
 
 export interface EvalContext {
     [variable: string]: number;
@@ -75,27 +75,38 @@ export function evaluateNodeEquations(
 
     // 1b. Inject dynamic properties if a fluid is specified
     if (fluidId) {
-        const component = registry.getComponent(fluidId);
-        if (component) {
-            // Determine state (convert T/P to Kelvin/Pascal for the engine)
-            const T_val = context["temperature"] || context["Tin"] || context["T"] || 298.15;
-            const P_val = context["pressure"] || context["Pin"] || context["P"] || 101325;
+        // Determine state (convert T/P to Kelvin/Pascal for the engine)
+        // We look for common variable names for T and P
+        const T_val = context["temperature"] || context["Tin"] || context["T"] || 298.15;
+        const P_val = context["pressure"] || context["Pin"] || context["P"] || 101325;
+        const state: State = { T: T_val, P: P_val };
+
+        if (composition && Object.keys(composition).length > 0) {
+            // MIXTURE CASE
+            const componentIds = Object.keys(composition);
+            const components = componentIds.map(id => registry.getComponent(id)).filter(c => !!c) as Component[];
             
-            const state: State = { T: T_val, P: P_val };
-            
-            // Map common properties with underscore prefix
-            const props: (keyof typeof component.properties)[] = ["cp", "density", "viscosity", "enthalpy", "vaporPressure"];
+            const props: (keyof Component['properties'])[] = ["cp", "density", "viscosity", "enthalpy", "vaporPressure"];
             props.forEach(p => {
-                const val = resolveComponentProperty(component, p, state);
-                if (val !== 0) {
-                    mathContext[`_${p}`] = val;
-                }
+                const val = resolveMixtureProperty(components, composition, p, state);
+                if (val !== 0) mathContext[`_${String(p)}`] = val;
             });
-            
-            // Inject constants
-            mathContext["_mw"] = component.molarMass;
-            mathContext["_Tc"] = component.Tc;
-            mathContext["_Pc"] = component.Pc;
+        } else {
+            // SINGLE COMPONENT CASE
+            const component = registry.getComponent(fluidId);
+            if (component) {
+                const props: (keyof Component['properties'])[] = ["cp", "density", "viscosity", "enthalpy", "vaporPressure"];
+                props.forEach(p => {
+                    const val = resolveComponentProperty(component, p, state);
+                    if (val !== 0) {
+                        mathContext[`_${String(p)}`] = val;
+                    }
+                });
+                
+                mathContext["_mw"] = component.molarMass;
+                mathContext["_Tc"] = component.Tc;
+                mathContext["_Pc"] = component.Pc;
+            }
         }
     }
 

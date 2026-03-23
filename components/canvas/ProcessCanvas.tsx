@@ -21,11 +21,14 @@ import "@xyflow/react/dist/style.css";
 import { EngineNode } from "@/components/nodes/EngineNode";
 import { NodePalette } from "./NodePalette";
 import { PropertiesPanel } from "./PropertiesPanel";
+import { ComponentManager } from "./ComponentManager";
 import { getNodeDefinition } from "@/lib/nodes/registry";
+import { registry } from "@/lib/engine/properties/registry";
 import { recalculateGraph, GraphNode, GraphEdge } from "@/lib/engine/graph";
 import { evaluateNodeEquations, EvalContext } from "@/lib/engine/evaluator";
 import { db } from "@/lib/instantdb";
 import { id as instantId, tx } from "@instantdb/react";
+import { Button } from "@/components/ui/button";
 
 // Define custom node data type
 type EngineNodeData = {
@@ -35,6 +38,8 @@ type EngineNodeData = {
     inputs: Record<string, { value: number; unit: string }>;
     computedOutputs: Record<string, { value: number; unit: string }>;
     equations: string[];
+    fluidId?: string;
+    mixtureComposition?: Record<string, number>;
 };
 
 const nodeTypes = {
@@ -106,6 +111,8 @@ function createFlowNode(
             inputs,
             computedOutputs,
             equations: def.equations,
+            fluidId: undefined,
+            mixtureComposition: {},
         } as EngineNodeData,
     };
 }
@@ -124,6 +131,8 @@ function serializeNodeForDB(node: FlowNode, projectId: string) {
         inputs: d.inputs,
         outputs: d.computedOutputs,
         equations: d.equations,
+        fluidId: d.fluidId || null,
+        mixtureComposition: d.mixtureComposition || null,
     };
 }
 
@@ -139,6 +148,8 @@ function deserializeNodeFromDB(dbNode: any): FlowNode {
             inputs: dbNode.inputs || {},
             computedOutputs: dbNode.outputs || {},
             equations: dbNode.equations || [],
+            fluidId: dbNode.fluidId || undefined,
+            mixtureComposition: dbNode.mixtureComposition || {},
         } as EngineNodeData,
     };
 }
@@ -181,7 +192,16 @@ function ProcessCanvasInner({ projectId }: { projectId: string }) {
     const { data: savedData, isLoading: isLoadingData } = db.useQuery({
         nodes: { $: { where: { projectId } } },
         edges: { $: { where: { projectId } } },
-    });
+        custom_components: {},
+    }) as { data: any, isLoading: boolean };
+
+    // Synchronize Property Registry with DB
+    useEffect(() => {
+        if (savedData?.custom_components) {
+            registry.clearCustom();
+            registry.registerMany(savedData.custom_components as any);
+        }
+    }, [savedData?.custom_components]);
 
     useEffect(() => {
         if (isLoadingData || isHydratedRef.current || !savedData) return;
@@ -300,6 +320,8 @@ function ProcessCanvasInner({ projectId }: { projectId: string }) {
                     inputUnits,
                     outputUnits,
                     equations: d.equations || [],
+                    fluidId: d.fluidId,
+                    mixtureComposition: d.mixtureComposition,
                 });
             }
 
@@ -424,39 +446,100 @@ function ProcessCanvasInner({ projectId }: { projectId: string }) {
         [setNodes, runRecalculation, edges]
     );
 
+    const onUpdateFluid = useCallback(
+        (nodeId: string, fluidId: string) => {
+            setNodes((nds: FlowNode[]) => {
+                const updatedNodes = nds.map((node: FlowNode) => {
+                    if (node.id !== nodeId) return node;
+                    const d = node.data as EngineNodeData;
+                    return {
+                        ...node,
+                        data: {
+                            ...d,
+                            fluidId,
+                        },
+                    };
+                });
+                runRecalculation(updatedNodes, edges);
+                return updatedNodes;
+            });
+        },
+        [setNodes, runRecalculation, edges]
+    );
+
+    const onUpdateComposition = useCallback(
+        (nodeId: string, composition: Record<string, number>) => {
+            setNodes((nds: FlowNode[]) => {
+                const updatedNodes = nds.map((node: FlowNode) => {
+                    if (node.id !== nodeId) return node;
+                    const d = node.data as EngineNodeData;
+                    return {
+                        ...node,
+                        data: {
+                            ...d,
+                            mixtureComposition: composition,
+                        },
+                    };
+                });
+                runRecalculation(updatedNodes, edges);
+                return updatedNodes;
+            });
+        },
+        [setNodes, runRecalculation, edges]
+    );
+
     return (
-        <div className="flex h-full w-full overflow-hidden">
-            <NodePalette onAddNode={(type) => setNodes((nds) => [...nds, createFlowNode(type, { x: 250, y: 150 })])} />
-            
-            <div className="relative flex-1" ref={reactFlowWrapper}>
-                <ReactFlow
-                    nodes={nodes}
-                    edges={edges}
-                    onNodesChange={onNodesChange}
-                    onEdgesChange={onEdgesChange}
-                    onConnect={onConnect}
-                    onNodeClick={onNodeClick}
-                    onPaneClick={onPaneClick}
-                    onNodesDelete={onNodesDelete}
-                    nodeTypes={nodeTypes}
-                    fitView
-                    snapToGrid
-                    snapGrid={[15, 15]}
-                >
-                    <Background variant={BackgroundVariant.Dots} gap={30} size={1} />
-                    <Controls />
-                    <MiniMap zoomable pannable />
-                </ReactFlow>
+        <div className="flex h-full w-full overflow-hidden flex-col">
+            {/* Toolbar Header */}
+            <div className="h-12 border-b border-border bg-sidebar flex items-center px-4 justify-between shrink-0">
+                <div className="flex items-center gap-4">
+                    <h1 className="text-sm font-bold text-foreground flex items-center gap-2">
+                        <span className="text-primary tracking-tighter">calCAd</span>
+                        <span className="text-muted-foreground font-normal">|</span>
+                        <span>Process Designer</span>
+                    </h1>
+                </div>
+                <div className="flex items-center gap-2">
+                    <ComponentManager />
+                    <Button variant="outline" size="sm" className="h-8 text-xs">Export</Button>
+                </div>
             </div>
 
-            {selectedNode && (
-                <PropertiesPanel
-                    selectedNode={selectedNode}
-                    onUpdateParameter={onUpdateParameter}
-                    onDeleteNode={onDeleteNode}
-                    onClose={() => setSelectedNode(null)}
-                />
-            )}
+            <div className="flex-1 flex overflow-hidden">
+                <NodePalette onAddNode={(type) => setNodes((nds) => [...nds, createFlowNode(type, { x: 250, y: 150 })])} />
+                
+                <div className="relative flex-1" ref={reactFlowWrapper}>
+                    <ReactFlow
+                        nodes={nodes}
+                        edges={edges}
+                        onNodesChange={onNodesChange}
+                        onEdgesChange={onEdgesChange}
+                        onConnect={onConnect}
+                        onNodeClick={onNodeClick}
+                        onPaneClick={onPaneClick}
+                        onNodesDelete={onNodesDelete}
+                        nodeTypes={nodeTypes}
+                        fitView
+                        snapToGrid
+                        snapGrid={[15, 15]}
+                    >
+                        <Background variant={BackgroundVariant.Dots} gap={30} size={1} />
+                        <Controls />
+                        <MiniMap zoomable pannable />
+                    </ReactFlow>
+                </div>
+
+                {selectedNode && (
+                    <PropertiesPanel
+                        selectedNode={selectedNode}
+                        onUpdateParameter={onUpdateParameter}
+                        onUpdateFluid={onUpdateFluid}
+                        onUpdateComposition={onUpdateComposition}
+                        onDeleteNode={onDeleteNode}
+                        onClose={() => setSelectedNode(null)}
+                    />
+                )}
+            </div>
         </div>
     );
 }

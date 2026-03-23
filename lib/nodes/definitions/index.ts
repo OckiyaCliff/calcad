@@ -39,7 +39,8 @@ export const pumpNode: NodeDefinition = {
     ],
     equations: [
         "Pout = Pin + dP",
-        "W = flow_rate * dP / (density * efficiency)",
+        "eff_density = (exists(_density) ? _density : density)",
+        "W = flow_rate * dP / (eff_density * efficiency)",
     ],
     outputs: [
         { name: "Pout", label: "Outlet Pressure", unit: "kPa" },
@@ -61,7 +62,10 @@ export const heaterNode: NodeDefinition = {
     parameters: [
         { name: "Tout", label: "Outlet Temp", unit: "°C", defaultValue: 80 },
     ],
-    equations: ["Q = flow_rate * Cp * (Tout - Tin)"],
+    equations: [
+        "eff_cp = (exists(_cp) ? _cp : Cp)",
+        "Q = flow_rate * eff_cp * (Tout - Tin)"
+    ],
     outputs: [
         { name: "Q", label: "Duty", unit: "kW" },
         { name: "Tout", label: "Outlet Temp", unit: "°C" },
@@ -85,7 +89,8 @@ export const heatExchangerNode: NodeDefinition = {
         { name: "LMTD", label: "LMTD", unit: "°C", defaultValue: 30 },
     ],
     equations: [
-        "Q = flow_rate * Cp * (Tin - Tout)",
+        "eff_cp = (exists(_cp) ? _cp : Cp)",
+        "Q = flow_rate * eff_cp * (Tin - Tout)",
         "A = Q / (U * LMTD)",
     ],
     outputs: [

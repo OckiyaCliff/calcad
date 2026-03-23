@@ -9,6 +9,8 @@ export interface GraphNode {
     inputUnits?: Record<string, string>;
     outputUnits?: Record<string, string>;
     equations: string[];
+    fluidId?: string;
+    mixtureComposition?: Record<string, number>;
 }
 
 export interface GraphEdge {
@@ -122,8 +124,14 @@ export function recalculateGraph(
             }
         }
 
-        // 2. Evaluate equations with unit awareness
-        const fullContext = evaluateNodeEquations(node.equations, context, unitMapping);
+        // 2. Evaluate equations with unit and fluid awareness
+        const fullContext = evaluateNodeEquations(
+            node.equations, 
+            context, 
+            unitMapping, 
+            node.fluidId, 
+            node.mixtureComposition
+        );
 
         // 3. Extract outputs
         const outputs: Record<string, number> = {};

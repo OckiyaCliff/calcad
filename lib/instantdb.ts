@@ -25,6 +25,8 @@ const schema = i.schema({
             inputs: i.json(),
             outputs: i.json(),
             equations: i.json(),
+            fluidId: i.string().optional(),
+            mixtureComposition: i.json().optional(),
         }),
         edges: i.entity({
             projectId: i.string(),
@@ -32,6 +34,13 @@ const schema = i.schema({
             target: i.string(),
             sourceHandle: i.string(),
             targetHandle: i.string(),
+        }),
+        custom_components: i.entity({
+            name: i.string(),
+            formula: i.string(),
+            molarMass: i.number(),
+            properties: i.json(),
+            createdAt: i.number(),
         }),
         customNodeDefs: i.entity({
             name: i.string(),

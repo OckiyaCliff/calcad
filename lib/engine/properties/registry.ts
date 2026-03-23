@@ -75,6 +75,20 @@ class ComponentRegistry {
     registerCustom(component: Component) {
         this.components.set(component.id, { ...component, isCustom: true });
     }
+
+    registerMany(components: Component[]) {
+        components.forEach(c => this.components.set(c.id, c));
+    }
+
+    clearCustom() {
+        // Keep only built-ins
+        const builtInIds = BUILTIN_COMPONENTS.map(c => c.id);
+        for (const id of this.components.keys()) {
+            if (!builtInIds.includes(id)) {
+                this.components.delete(id);
+            }
+        }
+    }
 }
 
 export const registry = new ComponentRegistry();

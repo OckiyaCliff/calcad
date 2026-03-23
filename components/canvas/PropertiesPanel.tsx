@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { X, Trash2 } from "lucide-react";
+import { X, Trash2, Beaker } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { 
     Select, 
@@ -15,10 +15,13 @@ import {
     SelectValue 
 } from "@/components/ui/select";
 import { getCompatibleUnits, convertUnit } from "@/lib/engine/units";
+import { registry } from "@/lib/engine/properties/registry";
 
 interface PropertiesPanelProps {
     selectedNode: any;
     onUpdateParameter: (nodeId: string, paramName: string, value: number, unit?: string) => void;
+    onUpdateFluid: (nodeId: string, fluidId: string) => void;
+    onUpdateComposition: (nodeId: string, composition: Record<string, number>) => void;
     onDeleteNode: (nodeId: string) => void;
     onClose: () => void;
 }
@@ -26,6 +29,8 @@ interface PropertiesPanelProps {
 export function PropertiesPanel({
     selectedNode,
     onUpdateParameter,
+    onUpdateFluid,
+    onUpdateComposition,
     onDeleteNode,
     onClose,
 }: PropertiesPanelProps) {
@@ -34,15 +39,17 @@ export function PropertiesPanel({
     const def = getNodeDefinition(selectedNode.data.nodeType);
     if (!def) return null;
 
-    const outputs = selectedNode.data.computedOutputs || {};
-    const inputs = selectedNode.data.inputs || {};
+    const data = selectedNode.data;
+    const outputs = data.computedOutputs || {};
+    const inputs = data.inputs || {};
+    const allFluids = registry.getAll();
 
     return (
         <div className="w-[280px] border-l border-border bg-sidebar flex flex-col h-full">
             <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                 <div>
                     <h3 className="text-sm font-semibold text-foreground">
-                        {selectedNode.data.label || def.label}
+                        {data.label || def.label}
                     </h3>
                     <p className="text-[10px] text-muted-foreground mt-0.5">
                         {def.category} · {def.type}
@@ -55,6 +62,70 @@ export function PropertiesPanel({
 
             <ScrollArea className="flex-1">
                 <div className="p-4 space-y-5">
+                    {/* Fluid Selection Section */}
+                    <div>
+                        <div className="flex items-center gap-2 mb-3">
+                            <Beaker className="w-3.5 h-3.5 text-primary" />
+                            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                                Fluid Component
+                            </p>
+                        </div>
+                        <Select
+                            value={data.fluidId || "none"}
+                            onValueChange={(val) => onUpdateFluid(selectedNode.id, val === "none" ? "" : val)}
+                        >
+                            <SelectTrigger className="h-9 w-full text-xs bg-background border-primary/20">
+                                <SelectValue placeholder="Select a fluid..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="none" className="text-xs italic">No Fluid (Manual Props)</SelectItem>
+                                <SelectItem value="mixture" className="text-xs font-bold text-primary">── Custom Mixture ──</SelectItem>
+                                {allFluids.map((fluid) => (
+                                    <SelectItem key={fluid.id} value={fluid.id} className="text-xs">
+                                        {fluid.name} ({fluid.formula || '—'})
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+
+                        {data.fluidId === "mixture" && (
+                            <div className="mt-4 p-3 rounded-md bg-muted/50 border border-border space-y-3">
+                                <p className="text-[10px] font-bold text-muted-foreground uppercase">Mixture Composition</p>
+                                {allFluids.map(fluid => (
+                                    <div key={fluid.id} className="flex items-center justify-between gap-2">
+                                        <span className="text-[10px] flex-1 truncate">{fluid.name}</span>
+                                        <Input 
+                                            type="number"
+                                            className="h-7 w-20 text-[10px] font-mono text-right"
+                                            placeholder="0.0"
+                                            value={data.mixtureComposition?.[fluid.id] || ""}
+                                            onChange={(e) => {
+                                                const val = parseFloat(e.target.value) || 0;
+                                                const newComp = { ...(data.mixtureComposition || {}) };
+                                                if (val === 0) delete newComp[fluid.id];
+                                                else newComp[fluid.id] = val;
+                                                onUpdateComposition(selectedNode.id, newComp);
+                                            }}
+                                        />
+                                    </div>
+                                ))}
+                                <p className="text-[9px] text-muted-foreground italic">
+                                    * Sum: {(() => {
+                                        const comp = (data.mixtureComposition || {}) as Record<string, number>;
+                                        return Object.values(comp).reduce((a, b) => a + b, 0).toFixed(3);
+                                    })()}
+                                </p>
+                            </div>
+                        )}
+                        {data.fluidId && (
+                            <p className="text-[10px] text-primary mt-2 font-medium">
+                                * Dynamic properties (_cp, _rho, _mw) are now active.
+                            </p>
+                        )}
+                    </div>
+
+                    <Separator />
+
                     {/* Parameters Section */}
                     {def.parameters.length > 0 && (
                         <div>
@@ -63,7 +134,7 @@ export function PropertiesPanel({
                             </p>
                             <div className="space-y-3">
                                 {def.parameters.map((param) => {
-                                    const paramData = selectedNode.data.parameters?.[param.name];
+                                    const paramData = data.parameters?.[param.name];
                                     const currentValue = paramData?.value ?? param.defaultValue;
                                     const currentUnit = paramData?.unit ?? param.unit;
                                     const compatibleUnits = getCompatibleUnits(currentUnit);
@@ -78,8 +149,6 @@ export function PropertiesPanel({
                                                     type="number"
                                                     value={currentValue}
                                                     step="any"
-                                                    min={param.min}
-                                                    max={param.max}
                                                     onChange={(e) =>
                                                         onUpdateParameter(
                                                             selectedNode.id,
@@ -94,7 +163,6 @@ export function PropertiesPanel({
                                                     <Select
                                                         value={currentUnit}
                                                         onValueChange={(newUnit: string) => {
-                                                            // Auto-convert value if we have a valid conversion
                                                             const convertedValue = convertUnit(currentValue, currentUnit, newUnit);
                                                             onUpdateParameter(
                                                                 selectedNode.id,
