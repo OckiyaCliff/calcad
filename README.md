@@ -99,11 +99,18 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 - [x] Template library (4 built-in process trains)
 - [x] Node/Edge deletion (keys + UI button)
 
-### Phase 3 — Engineering Intelligence 🏗️
-- [ ] **Robust Dynamic Unit System**: mathjs-powered dimensional conversion
-- [ ] **Persistent Custom Nodes**: Store node schemas in InstantDB
-- [ ] **Iterative Solvers**: Support for recycle streams (Newton-Raphson)
-- [ ] **Global Unit Preferences**: Project-wide SI vs Imperial toggle
+### Phase 3 — Engineering Intelligence ✅
+- [x] **Robust Dynamic Unit System**: mathjs-powered dimensional conversion
+- [x] **Persistent Custom Nodes**: Store node schemas in InstantDB
+- [x] **Iterative Solvers**: Support for recycle streams (Wegstein acceleration)
+
+### Phase 4 — Component & Property Engine ✅
+- [x] **Industrial Chemical Registry**: 20+ components with Hf/Gf/Cp(T) data
+- [x] **Property Integration**: Automatic injection of Cp and Density into equations
+
+### Phase 5 — Reaction Engineering ✅
+- [x] **Stoichiometry Engine**: CH4 + 2O2 -> CO2 + 2H2O parsing
+- [x] **Reactor Design**: Conversion-based energy and mass balances
 
 ### Phase 4 — Platform
 - [ ] Real-time collaboration with presence
@@ -113,74 +120,64 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ---
 
-## 📐 5 Practical Case Studies
+## 📖 Documentation
+Detailed technical specifications of the engine, property models, and solvers can be found in [DOCS.md](./DOCS.md).
 
-Below are five real engineering problems you can solve using **calCAd** right now.
+---
+
+## 📐 Advanced Case Studies
+
+### Case Study 5: Methane Combustion Energy Balance
+**Goal:** Calculate the heat released by burning 10 mol/s of Methane.
+1. Open the **Reactions** manager and add `CH4 + 2O2 -> CO2 + 2H2O`.
+2. The engine calculates $\Delta Hr = -802.3 \text{ kJ/mol}$ (Exothermic).
+3. In the canvas, connect a 10 mol/s Methane stream to a **Conversion Reactor**.
+4. Set conversion to 1.0. The duty output shows **-8,023 kW**.
+
+### Case Study 6: Recycle Loop Convergence
+**Goal:** Simulate a system with a 20% purge and 80% recycle of unreacted feed.
+1. Connect **Mixer** → **Reactor** → **Separator**.
+2. Connect the Separator "Bottoms" back to the Mixer "Flow 2".
+3. The **Recycle Solver** activates. You will see "Converged (N iter)" in ## 📐 Engineering Case Studies
+
+Experience the power of **calCAd** through these seven practical engineering scenarios.
 
 ---
 
 ### Case Study 1: Heat Exchanger Duty Calculation
+**Goal:** Cool a process stream from 120°C to 60°C.
+- **Setup:** Connect a **Stream** (10 kg/s, Cp 4.18) to a **Heat Exchanger**.
+- **Result:** Setting `Tout = 60` instantly calculates a duty of **2,508 kW**.
 
-**Problem:** A chemical plant needs to cool a process stream from 120°C to 60°C. The stream flows at 10 kg/s with a heat capacity (Cp) of 4.18 kJ/(kg·°C). What is the heat duty?
+### Case Study 2: Pump Sizing & Power
+**Goal:** Increase pressure from 101.3 kPa to 501.3 kPa at 5 kg/s.
+- **Setup:** Connect **Stream** to **Pump** (70% efficiency, 1000 kg/m³ density).
+- **Result:** Output shows a power requirement of **2.86 kW**.
 
-**How to solve in calCAd:**
-1. Open a project and go to the **Process Canvas**
-2. Drag a **Stream** node onto the canvas
-3. Set parameters: `Temperature = 120`, `Flow Rate = 10`, `Cp = 4.18`
-4. Drag a **Heat Exchanger** node and connect the Stream output to its input
-5. Set the Heat Exchanger `Outlet Temp = 60`
-6. The properties panel instantly shows: **Q = 2,508 kW**
+### Case Study 3: Reactor Yield & Selectivity
+**Goal:** Determine product rate for a 50 kg/s feed.
+- **Setup:** Connect **Stream** to **Reactor** (85% conversion, 92% selectivity).
+- **Result:** **39.10 kg/s** of product and **7.50 kg/s** unreacted feed.
 
----
+### Case Study 4: Multi-Step Process Train
+**Goal:** Simulate a Pump → Heater → Reactor sequence.
+- **Setup:** Build the chain on the canvas.
+- **Result:** Each node feeds the next; changing the pump pressure rise updates the reactor's inlet state in real-time.
 
-### Case Study 2: Pump Sizing for a Pipeline
+### Case Study 5: Reaction Thermodynamics
+**Goal:** Calculate energy release for Methane Combustion (`CH4 + 2O2 -> CO2 + 2H2O`).
+- **Setup:** Define the reaction in the **Reaction Manager**. 
+- **Result:** The system calculates $\Delta Hr = -802.3 \text{ kJ/mol}$. A 10 mol/s reactor at 100% conversion outputs **8.02 MW** of heat.
 
-**Problem:** A water transfer pump needs to increase pressure from 101.3 kPa to 501.3 kPa at a flow rate of 5 kg/s. The pump efficiency is 70%. What power is required?
+### Case Study 6: Recycle Loop Convergence
+**Goal:** Simulate a process with a 20% purge and 80% recycle.
+- **Setup:** Connect **Mixer → Reactor → Separator**, then loop the Separator bottoms back to the Mixer.
+- **Result:** The **Recycle Solver** activates, displaying "Converged" in the toolbar once the system reaches a stable mass balance.
 
-**How to solve in calCAd:**
-1. Drag a **Stream** node → set `Flow Rate = 5`, `Pressure = 101.3`
-2. Connect it to a **Pump** node
-3. Set Pump parameters: `Pressure Rise (dP) = 400`, `Efficiency = 0.70`, `Density = 1000`
-4. The output shows: **W = 2.86 kW**
-
----
-
-### Case Study 3: Reactor Conversion & Product Yield
-
-**Problem:** A reactor receives 50 kg/s of feed. The expected conversion is 85% and selectivity is 92%. What is the product rate and how much feed remains unreacted?
-
-**How to solve in calCAd:**
-1. Drag a **Stream** node → set `Flow Rate = 50`
-2. Connect to a **Reactor** node
-3. Set `Conversion = 0.85`, `Selectivity = 0.92`
-4. Outputs update instantly:
-   - **Product Rate = 39.10 kg/s**
-   - **Unreacted = 7.50 kg/s**
-
----
-
-### Case Study 4: Multi-Equipment Process Flow
-
-**Problem:** Design a complete process: pump raw feed, heat it, then react it. The feed enters at 25°C, 101.3 kPa, at 8 kg/s.
-
-**How to solve in calCAd:**
-1. Place a **Stream** node: `Temp = 25`, `Pressure = 101.3`, `Flow Rate = 8`, `Cp = 4.18`
-2. Connect to a **Pump**: `dP = 300`, `Efficiency = 0.75`, `Density = 950`
-3. Connect to a **Heater**: `Tout = 150`
-4. Connect to a **Reactor**: `Conversion = 0.90`, `Selectivity = 0.95`
-5. The entire chain recalculates automatically.
-
----
-
-### Case Study 5: Custom Node — Reynolds Number Calculator
-
-**Problem:** Build a reusable calculator for Reynolds numbers (`Re = density * velocity * diameter / viscosity`).
-
-**How to solve in calCAd:**
-1. Navigate to the **Node Builder** tab
-2. Create a new node with inputs for `velocity`, `diameter`, `density`, and `viscosity`
-3. Define the equation: `Re = density * velocity * diameter / viscosity`
-4. Save the node; it is now available in your project palette.
+### Case Study 7: Custom Reynolds Number Node
+**Goal:** Build a reusable fluid mechanics calculator.
+- **Setup:** In the **Node Builder**, define `Re = density * velocity * diameter / viscosity`.
+- **Result:** Save the node to your palette and use it across any project in your workspace.
 
 ---
 
@@ -188,15 +185,32 @@ Below are five real engineering problems you can solve using **calCAd** right no
 
 | Layer | Technology |
 |-------|-----------|
-| Framework | Next.js 16 (App Router) |
-| UI | React, TailwindCSS, shadcn/ui |
-| Canvas | React Flow (xyflow) v12 |
-| Math Engine | mathjs |
-| Database | InstantDB (realtime, collaborative) |
-| Language | TypeScript |
+| **Framework** | Next.js 16 (App Router) |
+| **UI** | React, TailwindCSS, shadcn/ui |
+| **Canvas** | React Flow (xyflow) v12 |
+| **Math Engine** | mathjs |
+| **Solver** | Wegstein-accelerated Successive Substitution |
+| **Database** | InstantDB (Realtime NoSQL) |
+| **Language** | TypeScript |
+
+---
+
+## 🗺️ Future Roadmap (The Next Evolution)
+
+### Phase 7 — Thermodynamic Depth
+- [ ] **Equation of State (EOS)**: Peng-Robinson implementation for VLE.
+- [ ] **Flash Vessels**: Automatic Vapor/Liquid split calculation based on T/P.
+- [ ] **Global Unit Persistence**: Multi-project unit preference memory.
+
+### Phase 8 — Automation & Reporting
+- [ ] **AI Engineering Assistant**: GPT-4o powered process optimizer.
+- [ ] **PDF Reporting**: Instant generation of professional process datasheets.
+- [ ] **Real-time Collaboration**: Multi-user cursor presence and live editing.
 
 ---
 
 <p align="center">
   <strong>calCAd</strong> — The collaborative engineering workspace for the modern engineer.
+</p>
+d</strong> — The collaborative engineering workspace for the modern engineer.
 </p>
