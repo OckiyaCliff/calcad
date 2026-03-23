@@ -22,6 +22,7 @@ import { EngineNode } from "@/components/nodes/EngineNode";
 import { NodePalette } from "./NodePalette";
 import { PropertiesPanel } from "./PropertiesPanel";
 import { ComponentManager } from "./ComponentManager";
+import { ReactionManager } from "./ReactionManager";
 import { getNodeDefinition } from "@/lib/nodes/registry";
 import { registry } from "@/lib/engine/properties/registry";
 import { recalculateGraph, GraphNode, GraphEdge } from "@/lib/engine/graph";
@@ -187,6 +188,7 @@ function ProcessCanvasInner({ projectId }: { projectId: string }) {
     const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const isHydratedRef = useRef(false);
     const isSavingRef = useRef(false);
+    const [reactions, setReactions] = useState<any[]>([]);
 
     // ─── Load from InstantDB ───────────────────────────────────
     const { data: savedData, isLoading: isLoadingData } = db.useQuery({
@@ -500,6 +502,11 @@ function ProcessCanvasInner({ projectId }: { projectId: string }) {
                     </h1>
                 </div>
                 <div className="flex items-center gap-2">
+                    <ReactionManager 
+                        reactions={reactions}
+                        onAddReaction={(rxn) => setReactions((prev) => [...prev, rxn])}
+                        onRemoveReaction={(id) => setReactions((prev) => prev.filter((r) => r.id !== id))}
+                    />
                     <ComponentManager />
                     <Button variant="outline" size="sm" className="h-8 text-xs">Export</Button>
                 </div>
