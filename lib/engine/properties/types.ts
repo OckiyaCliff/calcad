@@ -41,6 +41,10 @@ export interface Component {
     Tc?: number; // K
     Pc?: number; // Pa
     omega?: number; // Acentric factor
+
+    // Thermochemical data
+    Hf?: number; // Standard enthalpy of formation at 298.15K (J/mol)
+    Gf?: number; // Standard Gibbs energy of formation at 298.15K (J/mol)
     
     // Property models
     properties: {

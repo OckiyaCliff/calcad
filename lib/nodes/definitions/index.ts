@@ -99,24 +99,28 @@ export const heatExchangerNode: NodeDefinition = {
 
 export const reactorNode: NodeDefinition = {
     type: "reactor",
-    label: "Reactor",
+    label: "Conversion Reactor",
     category: "Reaction",
     icon: "FlaskConical",
     color: "#10b981",
     inputs: [
-        { name: "feed_rate", label: "Feed Rate", unit: "kg/s" },
+        { name: "feed_rate", label: "Feed Rate", unit: "mol/s" },
+        { name: "Tin", label: "Inlet Temp", unit: "°C", defaultValue: 25 },
     ],
     parameters: [
-        { name: "conversion", label: "Conversion", unit: "", defaultValue: 0.85, min: 0, max: 1 },
+        { name: "conversion", label: "Conversion (X)", unit: "", defaultValue: 0.85, min: 0, max: 1 },
         { name: "selectivity", label: "Selectivity", unit: "", defaultValue: 0.95, min: 0, max: 1 },
+        { name: "deltaHr", label: "Heat of Rxn", unit: "kJ/mol", defaultValue: -802.3 },
     ],
     equations: [
         "product_rate = feed_rate * conversion * selectivity",
         "unreacted = feed_rate * (1 - conversion)",
+        "Q_rxn = feed_rate * conversion * deltaHr",
     ],
     outputs: [
-        { name: "product_rate", label: "Product Rate", unit: "kg/s" },
-        { name: "unreacted", label: "Unreacted", unit: "kg/s" },
+        { name: "product_rate", label: "Product Rate", unit: "mol/s" },
+        { name: "unreacted", label: "Unreacted Feed", unit: "mol/s" },
+        { name: "Q_rxn", label: "Reaction Duty", unit: "kW" },
     ],
 };
 
