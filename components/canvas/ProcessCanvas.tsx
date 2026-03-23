@@ -23,9 +23,10 @@ import { NodePalette } from "./NodePalette";
 import { PropertiesPanel } from "./PropertiesPanel";
 import { ComponentManager } from "./ComponentManager";
 import { ReactionManager } from "./ReactionManager";
-import { getNodeDefinition } from "@/lib/nodes/registry";
+import { getNodeDefinition, registerCustomNode } from "@/lib/nodes/registry";
 import { registry } from "@/lib/engine/properties/registry";
-import { recalculateGraph, GraphNode, GraphEdge } from "@/lib/engine/graph";
+import { recalculateGraph, GraphNode, GraphEdge, CalculationResult } from "@/lib/engine/graph";
+import { SolverStatus } from "@/lib/engine/recycle-solver";
 import { evaluateNodeEquations, EvalContext } from "@/lib/engine/evaluator";
 import { db } from "@/lib/instantdb";
 import { id as instantId, tx } from "@instantdb/react";
@@ -189,13 +190,42 @@ function ProcessCanvasInner({ projectId }: { projectId: string }) {
     const isHydratedRef = useRef(false);
     const isSavingRef = useRef(false);
     const [reactions, setReactions] = useState<any[]>([]);
+    const [solverStatus, setSolverStatus] = useState<SolverStatus | null>(null);
 
     // ─── Load from InstantDB ───────────────────────────────────
-    const { data: savedData, isLoading: isLoadingData } = db.useQuery({
-        nodes: { $: { where: { projectId } } },
-        edges: { $: { where: { projectId } } },
-        custom_components: {},
-    }) as { data: any, isLoading: boolean };
+    const { data: savedData, isLoading: isLoadingData } = db.useQuery({ 
+        projects: { $: { where: { id: projectId } } },
+        nodes: { $: { where: { projectId: projectId } } },
+        edges: { $: { where: { projectId: projectId } } }
+    }) as any;
+
+    const project = savedData?.projects?.[0];
+
+    // Load custom node definitions for this workspace
+    const { data: customNodesData } = db.useQuery(
+        project?.workspaceId 
+            ? { customNodeDefs: { $: { where: { workspaceId: project.workspaceId } } } } 
+            : null
+    );
+
+    // Register custom nodes on load
+    useEffect(() => {
+        if (customNodesData?.customNodeDefs) {
+            customNodesData.customNodeDefs.forEach((def: any) => {
+                registerCustomNode({
+                    type: def.type || `custom_${def.name.toLowerCase().replace(/\s+/g, "_")}`,
+                    label: def.name,
+                    category: def.category,
+                    icon: "Box",
+                    color: "#a855f7",
+                    inputs: def.inputDefs || [],
+                    parameters: def.parameterDefs || [],
+                    equations: def.equationDefs || [],
+                    outputs: def.outputDefs || [],
+                });
+            });
+        }
+    }, [customNodesData]);
 
     // Synchronize Property Registry with DB
     useEffect(() => {
@@ -334,7 +364,8 @@ function ProcessCanvasInner({ projectId }: { projectId: string }) {
                 targetHandle: e.targetHandle || undefined,
             }));
 
-            const results = recalculateGraph(graphNodes, graphEdges);
+            const { results, status } = recalculateGraph(graphNodes, graphEdges);
+            setSolverStatus(status || null);
 
             setNodes((nds: FlowNode[]) =>
                 nds.map((node: FlowNode) => {
@@ -502,6 +533,19 @@ function ProcessCanvasInner({ projectId }: { projectId: string }) {
                     </h1>
                 </div>
                 <div className="flex items-center gap-2">
+                    {solverStatus?.active && (
+                        <div className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-medium border ${
+                            solverStatus.converged 
+                                ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-500" 
+                                : "bg-amber-500/10 border-amber-500/20 text-amber-500"
+                        }`}>
+                            <div className={`w-1.5 h-1.5 rounded-full ${
+                                solverStatus.converged ? "bg-emerald-500" : "bg-amber-500 animate-pulse"
+                            }`} />
+                            {solverStatus.converged ? "Converged" : "Solving..."} 
+                            <span className="opacity-60">({solverStatus.iterations} iter)</span>
+                        </div>
+                    )}
                     <ReactionManager 
                         reactions={reactions}
                         onAddReaction={(rxn) => setReactions((prev) => [...prev, rxn])}

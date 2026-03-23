@@ -10,6 +10,10 @@ import { Badge } from "@/components/ui/badge";
 import { Plus, Trash2, Save, Eye, Boxes, ArrowRight } from "lucide-react";
 import { registerCustomNode, NodeDefinition } from "@/lib/nodes/registry";
 import { evaluateNodeEquations, EvalContext } from "@/lib/engine/evaluator";
+import { db } from "@/lib/instantdb";
+import { useParams } from "next/navigation";
+import { id as instantId, tx } from "@instantdb/react";
+import { useEffect } from "react";
 
 interface FieldEntry {
     name: string;
@@ -19,6 +23,9 @@ interface FieldEntry {
 }
 
 export default function NodeBuilderPage() {
+    const params = useParams();
+    const projectId = params.id as string;
+
     const [nodeName, setNodeName] = useState("");
     const [category, setCategory] = useState("Custom");
     const [inputs, setInputs] = useState<FieldEntry[]>([]);
@@ -27,6 +34,38 @@ export default function NodeBuilderPage() {
     const [outputs, setOutputs] = useState<FieldEntry[]>([]);
     const [savedMessage, setSavedMessage] = useState("");
     const [previewOutputs, setPreviewOutputs] = useState<Record<string, number>>({});
+
+    // Load project to get workspaceId
+    const { data: projectData } = db.useQuery({ projects: { $: { where: { id: projectId } } } });
+    const project = projectData?.projects?.[0];
+
+    // Load existing custom node defs for this workspace
+    const { data: customNodesData } = db.useQuery(
+        project?.workspaceId 
+            ? { customNodeDefs: { $: { where: { workspaceId: project.workspaceId } } } } 
+            : null
+    );
+
+    // Register existing nodes on load
+    useEffect(() => {
+        if (customNodesData?.customNodeDefs) {
+            customNodesData.customNodeDefs.forEach((def: any) => {
+                // Map from DB schema to NodeDefinition
+                const nodeDef: NodeDefinition = {
+                    type: def.type || `custom_${def.name.toLowerCase().replace(/\s+/g, "_")}`,
+                    label: def.name,
+                    category: def.category,
+                    icon: "Box",
+                    color: "#a855f7",
+                    inputs: def.inputDefs || [],
+                    parameters: def.parameterDefs || [],
+                    equations: def.equationDefs || [],
+                    outputs: def.outputDefs || [],
+                };
+                registerCustomNode(nodeDef);
+            });
+        }
+    }, [customNodesData]);
 
     const addField = (
         setter: React.Dispatch<React.SetStateAction<FieldEntry[]>>
@@ -113,8 +152,27 @@ export default function NodeBuilderPage() {
                 })),
         };
 
+        // 1. Register in memory
         registerCustomNode(def);
-        setSavedMessage(`"${nodeName}" node registered! It's now available in the canvas palette.`);
+
+        // 2. Persist to InstantDB if we have workspaceId
+        if (project?.workspaceId) {
+            db.transact([
+                tx.customNodeDefs[instantId()].update({
+                    name: nodeName,
+                    type: typeName,
+                    category: category || "Custom",
+                    description: `Custom node: ${nodeName}`,
+                    inputDefs: def.inputs,
+                    parameterDefs: def.parameters,
+                    equationDefs: def.equations,
+                    outputDefs: def.outputs,
+                    workspaceId: project.workspaceId,
+                })
+            ]);
+        }
+
+        setSavedMessage(`"${nodeName}" node registered and saved! It's now available in the canvas palette.`);
         setTimeout(() => setSavedMessage(""), 4000);
     };
 
@@ -411,6 +469,66 @@ export default function NodeBuilderPage() {
                         </CardContent>
                     </Card>
                 </div>
+            </div>
+
+            <Separator />
+
+            {/* Saved Nodes List */}
+            <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                    <Boxes className="w-5 h-5 text-primary" />
+                    <h2 className="text-lg font-bold">Saved Custom Nodes</h2>
+                </div>
+                
+                {customNodesData?.customNodeDefs?.length === 0 ? (
+                    <div className="text-sm text-muted-foreground italic p-8 border-2 border-dashed rounded-xl text-center">
+                        No custom nodes saved yet. Create one above to get started.
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {customNodesData?.customNodeDefs?.map((def: any) => (
+                            <Card key={def.id} className="overflow-hidden border-primary/20 hover:border-primary/40 transition-colors">
+                                <CardContent className="p-4">
+                                    <div className="flex justify-between items-start mb-3">
+                                        <div className="space-y-1">
+                                            <div className="flex items-center gap-2">
+                                                <Badge variant="secondary" className="text-[9px] h-4 uppercase">
+                                                    {def.category}
+                                                </Badge>
+                                                <span className="text-xs font-bold">{def.name}</span>
+                                            </div>
+                                            <p className="text-[10px] text-muted-foreground line-clamp-1">{def.description}</p>
+                                        </div>
+                                        <Button 
+                                            variant="ghost" 
+                                            size="icon" 
+                                            className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                            onClick={() => {
+                                                if (confirm(`Are you sure you want to delete the "${def.name}" node definition?`)) {
+                                                    db.transact([tx.customNodeDefs[def.id].delete()]);
+                                                }
+                                            }}
+                                        >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                        </Button>
+                                    </div>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {def.inputDefs?.map((i: any, idx: number) => (
+                                            <Badge key={idx} variant="outline" className="text-[8px] px-1 py-0 border-blue-500/30 text-blue-500 bg-blue-500/5">
+                                                IN: {i.name}
+                                            </Badge>
+                                        ))}
+                                        {def.outputDefs?.map((o: any, idx: number) => (
+                                            <Badge key={idx} variant="outline" className="text-[8px] px-1 py-0 border-emerald-500/30 text-emerald-500 bg-emerald-500/5">
+                                                OUT: {o.name}
+                                            </Badge>
+                                        ))}
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        ))}
+                    </div>
+                )}
             </div>
         </div>
     );

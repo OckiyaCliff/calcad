@@ -1,5 +1,6 @@
 import { evaluateNodeEquations, EvalContext, UnitMapping } from "./evaluator";
 import { convertUnit } from "./units";
+import { solveRecycleGraph, SolverStatus, findTearEdges } from "./recycle-solver";
 
 export interface GraphNode {
     id: string;
@@ -18,6 +19,11 @@ export interface GraphEdge {
     target: string;
     sourceHandle?: string;
     targetHandle?: string;
+}
+
+export interface CalculationResult {
+    results: Map<string, Record<string, number>>;
+    status?: SolverStatus;
 }
 
 /**
@@ -86,13 +92,20 @@ export function topologicalSort(
 /**
  * Re-evaluate the entire graph. Called when a node changes.
  * Handles unit conversion during propagation.
+ * Detects cycles and uses the iterative recycle solver if needed.
  */
 export function recalculateGraph(
     nodes: Map<string, GraphNode>,
     edges: GraphEdge[]
-): Map<string, Record<string, number>> {
+): CalculationResult {
     const nodeIds = Array.from(nodes.keys());
     const executionOrder = topologicalSort(nodeIds, edges);
+    
+    // Cycle Detection: If Kahn's algorithm couldn't sort all nodes, there's a cycle.
+    if (executionOrder.length < nodeIds.length) {
+        return solveRecycleGraph(nodes, edges);
+    }
+
     const adj = buildAdjacencyList(edges);
     const results = new Map<string, Record<string, number>>();
 
@@ -117,7 +130,7 @@ export function recalculateGraph(
             if (inputUnit) unitMapping[key] = inputUnit;
         }
 
-        // Ensure output units are in the mapping so mathjs knows how to convert the result
+        // Ensure output units are in the mapping
         if (node.outputUnits) {
             for (const [key, unitStr] of Object.entries(node.outputUnits)) {
                 unitMapping[key] = unitStr;
@@ -153,12 +166,9 @@ export function recalculateGraph(
                     const targetUnit = targetNode.inputUnits?.[connection.targetHandle];
 
                     let finalValue = sourceVal;
-                    // If target unit is different, perform automatic conversion
                     if (sourceUnit && targetUnit && sourceUnit !== targetUnit) {
                         const converted = convertUnit(sourceVal, sourceUnit, targetUnit);
-                        if (converted !== null) {
-                            finalValue = converted;
-                        }
+                        if (converted !== null) finalValue = converted;
                     }
                     
                     targetNode.inputs[connection.targetHandle] = finalValue;
@@ -167,5 +177,5 @@ export function recalculateGraph(
         }
     }
 
-    return results;
+    return { results, status: { converged: true, iterations: 1, error: 0, active: false } };
 }
