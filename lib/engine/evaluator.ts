@@ -75,33 +75,38 @@ export function evaluateNodeEquations(
 
     // 1b. Inject dynamic properties if a fluid is specified
     if (fluidId) {
-        // Determine state (convert T/P to Kelvin/Pascal for the engine)
-        // We look for common variable names for T and P
         const T_val = context["temperature"] || context["Tin"] || context["T"] || 298.15;
         const P_val = context["pressure"] || context["Pin"] || context["P"] || 101325;
         const state: State = { T: T_val, P: P_val };
 
+        // Property name → equation variable name mapping
+        const propMapping: Record<string, string> = {
+            cp: "Cp",
+            density: "density",
+            viscosity: "viscosity",
+        };
+
         if (composition && Object.keys(composition).length > 0) {
-            // MIXTURE CASE
             const componentIds = Object.keys(composition);
             const components = componentIds.map(id => registry.getComponent(id)).filter(c => !!c) as Component[];
             
-            const props: (keyof Component['properties'])[] = ["cp", "density", "viscosity", "enthalpy", "vaporPressure"];
-            props.forEach(p => {
-                const val = resolveMixtureProperty(components, composition, p, state);
-                if (val !== 0) mathContext[`_${String(p)}`] = val;
-            });
+            for (const [prop, varName] of Object.entries(propMapping)) {
+                const val = resolveMixtureProperty(components, composition, prop as keyof Component['properties'], state);
+                if (val !== 0) {
+                    mathContext[varName] = val;
+                    mathContext[`_${prop}`] = val;
+                }
+            }
         } else {
-            // SINGLE COMPONENT CASE
             const component = registry.getComponent(fluidId);
             if (component) {
-                const props: (keyof Component['properties'])[] = ["cp", "density", "viscosity", "enthalpy", "vaporPressure"];
-                props.forEach(p => {
-                    const val = resolveComponentProperty(component, p, state);
+                for (const [prop, varName] of Object.entries(propMapping)) {
+                    const val = resolveComponentProperty(component, prop as keyof Component['properties'], state);
                     if (val !== 0) {
-                        mathContext[`_${String(p)}`] = val;
+                        mathContext[varName] = val;
+                        mathContext[`_${prop}`] = val;
                     }
-                });
+                }
                 
                 mathContext["_mw"] = component.molarMass;
                 mathContext["_Tc"] = component.Tc;
@@ -115,13 +120,20 @@ export function evaluateNodeEquations(
         const parsed = parseEquation(eq);
         if (!parsed) continue;
 
+        // Pre-check: ensure all referenced variables exist in context
+        const referencedVars = extractVariables(parsed.expression);
+        let canEvaluate = true;
+        for (const v of referencedVars) {
+            if (mathContext[v] === undefined) {
+                mathContext[v] = 0; // Default missing inputs to 0
+            }
+        }
+
         try {
             const result = evaluate(parsed.expression, mathContext);
             mathContext[parsed.output] = result;
             
-            // Sync back to numeric context
             if (typeof result === "object" && result && "value" in result) {
-                // If it's a unit, convert it to the specific unit defined for this output (if any)
                 const targetUnit = variableUnits[parsed.output] || result.formatUnits();
                 context[parsed.output] = result.toNumber(targetUnit);
             } else if (typeof result === "number") {
